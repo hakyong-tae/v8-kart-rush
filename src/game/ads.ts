@@ -65,6 +65,61 @@ function adTexture(ad: AdDef): THREE.Texture {
   return fallback
 }
 
+/** A hot-air balloon towing an ad banner — floats around the course sky. */
+export function makeAdBalloon(ad: AdDef): THREE.Group {
+  const g = new THREE.Group()
+  const envMat = new THREE.MeshLambertMaterial({ color: new THREE.Color(ad.bg2) })
+  const env = new THREE.Mesh(new THREE.SphereGeometry(6, 14, 12), envMat)
+  env.scale.y = 1.18
+  g.add(env)
+  // contrast band + crown
+  const band = new THREE.Mesh(
+    new THREE.TorusGeometry(5.9, 0.7, 8, 20),
+    new THREE.MeshLambertMaterial({ color: new THREE.Color(ad.fg) }),
+  )
+  band.rotation.x = Math.PI / 2
+  band.position.y = 1.2
+  g.add(band)
+  // skirt down to the basket
+  const skirt = new THREE.Mesh(
+    new THREE.ConeGeometry(3.2, 3.4, 12, 1, true),
+    new THREE.MeshLambertMaterial({ color: new THREE.Color(ad.bg1), side: THREE.DoubleSide }),
+  )
+  skirt.rotation.x = Math.PI
+  skirt.position.y = -7.2
+  g.add(skirt)
+  const basket = new THREE.Mesh(
+    new THREE.BoxGeometry(2.2, 1.7, 2.2),
+    new THREE.MeshLambertMaterial({ color: 0x9c6b3f }),
+  )
+  basket.position.y = -9.8
+  g.add(basket)
+  const ropeMat = new THREE.MeshBasicMaterial({ color: 0xdddddd })
+  for (const [sx, sz] of [
+    [-1, -1],
+    [-1, 1],
+    [1, -1],
+    [1, 1],
+  ] as const) {
+    const rope = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 3.6, 4), ropeMat)
+    rope.position.set(sx * 1.6, -7.4, sz * 1.6)
+    rope.rotation.z = sx * 0.18
+    rope.rotation.x = -sz * 0.18
+    g.add(rope)
+  }
+  // towed ad banner (double-sided, readable from the track)
+  const banner = new THREE.Mesh(
+    new THREE.PlaneGeometry(11, 5.5),
+    new THREE.MeshBasicMaterial({ map: adTexture(ad), side: THREE.DoubleSide }),
+  )
+  banner.position.y = -14.2
+  g.add(banner)
+  const link = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.8, 4), ropeMat)
+  link.position.y = -11.4
+  g.add(link)
+  return g
+}
+
 /** A free-standing trackside ad board (~8 wide), front face textured. */
 export function makeAdBoard(ad: AdDef): THREE.Group {
   const g = new THREE.Group()

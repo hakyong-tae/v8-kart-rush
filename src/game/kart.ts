@@ -243,9 +243,11 @@ export class Kart {
     const fwd = this.speed >= 0 ? 1 : -1
     let turn: number
     if (this.driftDir !== 0) {
-      // counter-steer shapes the drift: push into it to tighten, away to widen
-      const steerBlend = this.driftDir * 0.55 + steer * 0.6
-      turn = steerBlend * TURN_RATE * 1.45
+      // counter-steer shapes the drift: push into it to tighten, away to widen.
+      // Eased entry — the kart leans into the slide instead of snapping.
+      const ease = Math.min(1, 0.35 + this.driftCharge * 2.6)
+      const steerBlend = this.driftDir * 0.45 + steer * 0.55
+      turn = steerBlend * TURN_RATE * 1.2 * ease
     } else {
       const speedFactor =
         Math.min(1, Math.abs(this.speed) / 7) *

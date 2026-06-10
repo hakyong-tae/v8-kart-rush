@@ -9,6 +9,7 @@ import { ItemManager, rollItem, type ItemType, type ItemActor } from './items'
 import { audio } from './audio'
 import { net, type PosMsg, type ItemMsg, type PlayerInfo } from '../net/net'
 import { getLang } from '../i18n'
+import { ADS, makeAdBalloon } from './ads'
 
 // Car Kit vehicles natively face +Z (front wheels at +z) — same as our heading axis.
 const KART_MODEL_YAW = 0
@@ -212,6 +213,9 @@ export class Game {
   private ghostRec: number[] = []
   private ghostRecAcc = 0
 
+  // ad balloons drifting across the sky
+  private balloons: { group: THREE.Group; angle: number; radius: number; speed: number; height: number; bob: number }[] = []
+
   // cloud rescuer (구름이)
   private rescuer: THREE.Group
   private rescue: {
@@ -268,6 +272,24 @@ export class Game {
     this.scene.add(group)
     this.scene.add(buildDecorations(this.track, this.assets))
     if (!theme.night) this.scene.add(makeClouds(this.course.decorSeed))
+
+    // ad balloons circling the course
+    {
+      let ext = 0
+      for (const s of this.track.samples) ext = Math.max(ext, Math.abs(s.pos.x), Math.abs(s.pos.z))
+      for (let i = 0; i < 3; i++) {
+        const balloon = makeAdBalloon(ADS[(i * 2 + 1) % ADS.length])
+        this.scene.add(balloon)
+        this.balloons.push({
+          group: balloon,
+          angle: (i / 3) * Math.PI * 2,
+          radius: ext * (0.55 + i * 0.25),
+          speed: 0.02 + i * 0.008,
+          height: 42 + i * 9,
+          bob: i * 2.1,
+        })
+      }
+    }
 
     // local kart — final stats are the additive character + kart combination
     const slot = this.mySlot()
@@ -1001,6 +1023,17 @@ export class Game {
       let yaw = ai.kart.heading
       if (ai.kart.spinT > 0) yaw += ai.kart.spinT * 12
       ai.group.rotation.y = yaw
+    }
+
+    // ad balloons drift slowly around the sky
+    for (const b of this.balloons) {
+      b.angle += b.speed * dt
+      b.group.position.set(
+        Math.cos(b.angle) * b.radius,
+        b.height + Math.sin(now * 0.0004 + b.bob) * 2.5,
+        Math.sin(b.angle) * b.radius,
+      )
+      b.group.rotation.y = -b.angle // banner faces along the flight path
     }
 
     this.updateKartVisual(now, dt)
