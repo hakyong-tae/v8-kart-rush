@@ -27,11 +27,13 @@ export class Track {
   samples: TrackSample[] = []
   N = 1000
   halfWidth: number
+  wallDist: number // guardrail distance from centerline
   totalLength: number
 
   constructor(course: CourseDef) {
     this.course = course
     this.halfWidth = course.width / 2
+    this.wallDist = this.halfWidth + course.shoulder
     const pts = course.points.map(([x, z]) => new THREE.Vector3(x, 0, z))
     this.curve = new THREE.CatmullRomCurve3(pts, true, 'catmullrom', 0.5)
     this.totalLength = this.curve.getLength()
@@ -166,6 +168,38 @@ function makeStrip(
   return geo
 }
 
+// vertical guardrail strip along the spline at fixed lateral distance
+function makeWall(
+  track: Track,
+  lat: number,
+  y0: number,
+  y1: number,
+  colorFn: (i: number) => THREE.Color,
+): THREE.BufferGeometry {
+  const N = track.N
+  const positions: number[] = []
+  const colors: number[] = []
+  const indices: number[] = []
+  for (let i = 0; i <= N; i++) {
+    const s = track.sampleAt(i)
+    const x = s.pos.x + s.nor.x * lat
+    const z = s.pos.z + s.nor.z * lat
+    positions.push(x, y0, z, x, y1, z)
+    const c = colorFn(i)
+    colors.push(c.r, c.g, c.b, c.r, c.g, c.b)
+    if (i < N) {
+      const a = i * 2
+      indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3)
+    }
+  }
+  const geo = new THREE.BufferGeometry()
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
+  geo.setIndex(indices)
+  geo.computeVertexNormals()
+  return geo
+}
+
 export interface TrackMeshes {
   group: THREE.Group
   boostPadMats: THREE.MeshBasicMaterial[]
@@ -214,6 +248,25 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
     new THREE.MeshLambertMaterial({ vertexColors: true }),
   )
   group.add(curbL, curbR)
+
+  // Guardrails (KartRider-style walls) on both sides
+  const railA = new THREE.Color(theme.rail)
+  const railB = new THREE.Color(theme.railAccent)
+  const railColor = (i: number) => (Math.floor(i / 9) % 2 === 0 ? railA : railB)
+  const railMat = new THREE.MeshLambertMaterial({
+    vertexColors: true,
+    side: THREE.DoubleSide,
+  })
+  const railL = new THREE.Mesh(makeWall(track, track.wallDist, 0, 0.95, railColor), railMat)
+  const railR = new THREE.Mesh(makeWall(track, -track.wallDist, 0, 0.95, railColor), railMat)
+  group.add(railL, railR)
+  // rail top edge (brighter cap line for readability)
+  const capMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })
+  const capColor = () => new THREE.Color(0xffffff)
+  group.add(
+    new THREE.Mesh(makeWall(track, track.wallDist, 0.95, 1.05, capColor), capMat),
+    new THREE.Mesh(makeWall(track, -track.wallDist, 0.95, 1.05, capColor), capMat),
+  )
 
   // Center dashed line
   const lineCol = new THREE.Color(theme.line)

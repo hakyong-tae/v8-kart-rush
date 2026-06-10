@@ -75,6 +75,16 @@ export class AudioEngine {
   countdownBeep(final: boolean) {
     this.blip(final ? 880 : 440, final ? 0.5 : 0.18, 'square', 0.1)
   }
+  gaugeFull() {
+    this.blip(784, 0.09, 'square', 0.12)
+    setTimeout(() => this.blip(1175, 0.18, 'square', 0.12), 90)
+  }
+  booster() {
+    this.blip(180, 0.7, 'sawtooth', 0.14, 1320)
+  }
+  wallBump() {
+    this.blip(110, 0.16, 'square', 0.14, 70)
+  }
   pickup() {
     this.blip(660, 0.1, 'triangle', 0.12, 990)
   }
@@ -98,6 +108,44 @@ export class AudioEngine {
   finish() {
     const notes = [523, 659, 784, 1047]
     notes.forEach((n, i) => setTimeout(() => this.blip(n, 0.22, 'triangle', 0.13), i * 140))
+  }
+
+  // ---------- chiptune BGM (step sequencer, no audio assets) ----------
+  private musicTimer: number | null = null
+  private musicStep = 0
+
+  startMusic() {
+    this.ensure()
+    if (!this.ctx || this.musicTimer !== null) return
+    const BPM = 138
+    const stepDur = 60 / BPM / 2 // 8th notes
+    // cheerful 32-step loop (KartRider-ish upbeat major) — freqs in Hz
+    const E4 = 329.6, G4 = 392, A4 = 440, B4 = 493.9, C5 = 523.3, D5 = 587.3, E5 = 659.3, G5 = 784
+    const lead = [
+      E5, 0, G5, 0, E5, D5, C5, 0, B4, 0, C5, D5, E5, 0, C5, 0,
+      A4, 0, C5, 0, E5, 0, D5, C5, B4, C5, D5, 0, G4, 0, B4, 0,
+    ]
+    const bassNotes = [82.4, 82.4, 110, 110, 65.4, 65.4, 98, 98] // E A C G
+    this.musicStep = 0
+    this.musicTimer = window.setInterval(() => {
+      if (!this.ctx || this.muted) {
+        this.musicStep++
+        return
+      }
+      const s = this.musicStep % 32
+      const n = lead[s]
+      if (n) this.blip(n, stepDur * 0.9, 'square', 0.035)
+      if (s % 2 === 0) this.blip(bassNotes[Math.floor(s / 4) % 8], stepDur * 1.6, 'triangle', 0.06)
+      if (s % 4 === 2) this.blip(8000, 0.03, 'square', 0.012) // hat-ish tick
+      this.musicStep++
+    }, stepDur * 1000)
+  }
+
+  stopMusic() {
+    if (this.musicTimer !== null) {
+      clearInterval(this.musicTimer)
+      this.musicTimer = null
+    }
   }
 }
 

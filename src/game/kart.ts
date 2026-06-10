@@ -2,22 +2,28 @@ import * as THREE from 'three'
 import { Track, NUM_CHECKPOINTS } from './track'
 import type { InputState } from './input'
 
-// Arcade kart tuning
+// Arcade kart tuning — KartRider-style: drift charges a booster gauge,
+// full gauge fires a long manual boost.
 const MAX_SPEED = 27
-const BOOST_SPEED = 38
-const GRASS_SPEED = 9.5
+const BOOSTER_SPEED = 41 // manual booster (strongest)
+const BOOST_SPEED = 37 // pads / items / release turbo
+const GRASS_SPEED = 10
 const ACCEL = 22
 const BRAKE = 34
 const REVERSE_MAX = 9
 const COAST_DRAG = 1.1
-const GRASS_DRAG = 2.6
+const GRASS_DRAG = 2.4
 const TURN_RATE = 2.35
 const GRIP_NORMAL = 8.0
-const GRIP_DRIFT = 2.2
+const GRIP_DRIFT = 1.55 // strong kick-out slide
+const GRIP_ICE = 3.2
+const GRIP_DRIFT_ICE = 1.1
 const DRIFT_MIN_SPEED = 13
-const MT_TIER1 = 0.85 // seconds of drift for blue spark boost
-const MT_TIER2 = 1.7 // orange spark boost
+const MT_TIER1 = 0.7 // short drift -> tiny release boost (순간부스트 느낌)
+const MT_TIER2 = 1.5
 const SPIN_TIME = 1.1
+const GAUGE_RATE = 0.3 // gauge/sec while drifting (~3.3s of drift = full)
+const BOOSTER_TIME = 2.3
 
 export type DriftTier = 0 | 1 | 2
 
@@ -36,10 +42,13 @@ export class Kart {
   finished = false
 
   boostT = 0
+  boosterT = 0 // manual booster (stronger top speed)
+  boostGauge = 0 // 0..1, charged by drifting (speed mode)
   spinT = 0
   driftDir: 0 | 1 | -1 = 0
   driftCharge = 0
   offroad = false
+  wallHit = 0 // >0 right after a wall impact (for sfx/fx)
   wrongWayT = 0
 
   // race progress metric for ranking: laps + fraction
@@ -47,6 +56,10 @@ export class Kart {
 
   constructor(public track: Track, slot = 0) {
     this.respawnAtSlot(slot)
+  }
+
+  get ice(): boolean {
+    return this.track.course.surface === 'ice'
   }
 
   respawnAtSlot(slot: number) {
@@ -59,6 +72,7 @@ export class Kart {
     this.nextCp = 0
     this.cpTotal = 0
     this.lap = 0
+    this.boostGauge = 0
   }
 
   get driftTier(): DriftTier {
@@ -79,6 +93,7 @@ export class Kart {
     this.speed = 0
     this.trackIdx = idx
     this.boostT = 0
+    this.boosterT = 0
     this.spinT = 0
     this.driftDir = 0
     this.driftCharge = 0
@@ -88,18 +103,33 @@ export class Kart {
     this.boostT = Math.max(this.boostT, sec)
   }
 
+  /** KartRider manual booster: consumes a full gauge. Returns true if fired. */
+  fireBooster(): boolean {
+    if (this.boostGauge < 1 || this.spinT > 0) return false
+    this.boostGauge = 0
+    this.boosterT = BOOSTER_TIME
+    return true
+  }
+
   applySpin() {
     if (this.spinT > 0) return
     this.spinT = SPIN_TIME
     this.driftDir = 0
     this.driftCharge = 0
     this.boostT = 0
+    this.boosterT = 0
   }
 
   /** Returns events that happened this step (for sfx / race logic) */
-  step(dt: number, input: InputState, canDrive: boolean): { lapCrossed: boolean; driftReleased: DriftTier; driftStarted: boolean } {
-    const ev = { lapCrossed: false, driftReleased: 0 as DriftTier, driftStarted: false }
+  step(
+    dt: number,
+    input: InputState,
+    canDrive: boolean,
+    gaugeEnabled: boolean,
+  ): { lapCrossed: boolean; driftReleased: DriftTier; driftStarted: boolean; gaugeFilled: boolean; wallBumped: boolean } {
+    const ev = { lapCrossed: false, driftReleased: 0 as DriftTier, driftStarted: false, gaugeFilled: false, wallBumped: false }
 
+    if (this.wallHit > 0) this.wallHit -= dt
     if (this.spinT > 0) {
       this.spinT -= dt
       this.speed *= Math.exp(-3.2 * dt)
@@ -114,10 +144,11 @@ export class Kart {
     const lat = this.track.lateral(this.pos, this.trackIdx)
     this.offroad = Math.abs(lat) > this.track.halfWidth + 0.6
 
-    const boosting = this.boostT > 0
-    if (boosting) this.boostT -= dt
+    const boosting = this.boostT > 0 || this.boosterT > 0
+    if (this.boostT > 0) this.boostT -= dt
+    if (this.boosterT > 0) this.boosterT -= dt
 
-    let maxFwd = boosting ? BOOST_SPEED : MAX_SPEED
+    let maxFwd = this.boosterT > 0 ? BOOSTER_SPEED : this.boostT > 0 ? BOOST_SPEED : MAX_SPEED
     if (this.offroad && !boosting) maxFwd = GRASS_SPEED
 
     // longitudinal
@@ -147,12 +178,18 @@ export class Kart {
       const tooSlow = this.speed < DRIFT_MIN_SPEED * 0.7
       if (!driftBtn || tooSlow) {
         ev.driftReleased = this.driftTier
-        if (this.driftTier === 1) this.applyBoost(0.9)
-        else if (this.driftTier === 2) this.applyBoost(1.6)
+        // small release kick (순간부스트). The real reward is the gauge.
+        if (this.driftTier === 1) this.applyBoost(0.45)
+        else if (this.driftTier === 2) this.applyBoost(0.85)
         this.driftDir = 0
         this.driftCharge = 0
       } else {
         this.driftCharge += dt * (1 + 0.5 * Math.abs(steer))
+        if (gaugeEnabled && this.boostGauge < 1) {
+          const before = this.boostGauge
+          this.boostGauge = Math.min(1, this.boostGauge + GAUGE_RATE * dt * (1 + 0.4 * Math.abs(steer)))
+          if (before < 1 && this.boostGauge >= 1) ev.gaugeFilled = true
+        }
       }
     }
     this.hop = Math.max(0, this.hop - dt * 4)
@@ -161,8 +198,9 @@ export class Kart {
     const fwd = this.speed >= 0 ? 1 : -1
     let turn: number
     if (this.driftDir !== 0) {
-      const steerBlend = this.driftDir * 0.6 + steer * 0.5
-      turn = steerBlend * TURN_RATE * 1.3
+      // counter-steer shapes the drift: push into it to tighten, away to widen
+      const steerBlend = this.driftDir * 0.55 + steer * 0.6
+      turn = steerBlend * TURN_RATE * 1.45
     } else {
       const speedFactor =
         Math.min(1, Math.abs(this.speed) / 7) *
@@ -173,7 +211,13 @@ export class Kart {
     this.heading += turn * fwd * dt
 
     // velocity direction chases heading (low grip while drifting => slide)
-    const grip = this.driftDir !== 0 ? GRIP_DRIFT : GRIP_NORMAL
+    const grip = this.ice
+      ? this.driftDir !== 0
+        ? GRIP_DRIFT_ICE
+        : GRIP_ICE
+      : this.driftDir !== 0
+        ? GRIP_DRIFT
+        : GRIP_NORMAL
     let dAng = this.heading - this.velDir
     while (dAng > Math.PI) dAng -= Math.PI * 2
     while (dAng < -Math.PI) dAng += Math.PI * 2
@@ -184,17 +228,39 @@ export class Kart {
     this.pos.x += Math.sin(this.velDir) * this.speed * dt
     this.pos.z += Math.cos(this.velDir) * this.speed * dt
 
-    // world bounds: soft wall far off-track
-    const prevIdx = this.trackIdx
+    // guardrail walls (KartRider tracks are walled)
     this.trackIdx = this.track.nearestIndex(this.pos, this.trackIdx)
     const lat2 = this.track.lateral(this.pos, this.trackIdx)
-    const bound = this.track.halfWidth + 26
-    if (Math.abs(lat2) > bound) {
+    const wallD = this.track.wallDist
+    if (Math.abs(lat2) > wallD) {
       const s = this.track.sampleAt(this.trackIdx)
-      const over = Math.abs(lat2) - bound
-      this.pos.x -= s.nor.x * Math.sign(lat2) * over
-      this.pos.z -= s.nor.z * Math.sign(lat2) * over
-      this.speed *= 0.6
+      const side = Math.sign(lat2)
+      // clamp back inside
+      const over = Math.abs(lat2) - wallD
+      this.pos.x -= s.nor.x * side * over
+      this.pos.z -= s.nor.z * side * over
+      // reflect the lateral velocity component, lose speed by impact angle
+      const vx = Math.sin(this.velDir) * this.speed
+      const vz = Math.cos(this.velDir) * this.speed
+      const vn = vx * s.nor.x + vz * s.nor.z // toward-wall component
+      if (vn * side > 0) {
+        const bounce = 0.35
+        const nvx = vx - (1 + bounce) * vn * s.nor.x
+        const nvz = vz - (1 + bounce) * vn * s.nor.z
+        const newSpeed = Math.hypot(nvx, nvz)
+        const impact = Math.abs(vn) / Math.max(1, Math.abs(this.speed))
+        this.velDir = Math.atan2(nvx, nvz)
+        this.speed = newSpeed * (1 - 0.45 * impact)
+        if (impact > 0.25 && this.wallHit <= 0) {
+          this.wallHit = 0.5
+          ev.wallBumped = true
+        }
+        // hard hits kill the drift
+        if (impact > 0.5) {
+          this.driftDir = 0
+          this.driftCharge = 0
+        }
+      }
     }
 
     // checkpoint / lap logic

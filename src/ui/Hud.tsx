@@ -12,10 +12,12 @@ export function Hud({
   snap,
   outline,
   mode,
+  raceMode,
 }: {
   snap: HudSnapshot | null
   outline: { x: number; z: number }[]
   mode: 'time' | 'multi'
+  raceMode: 'speed' | 'item'
 }) {
   const mapRef = useRef<HTMLCanvasElement>(null)
 
@@ -89,12 +91,25 @@ export function Hud({
         </div>
       )}
 
-      {/* item slot */}
-      {mode === 'multi' && (
+      {/* item slot (item mode) */}
+      {raceMode === 'item' && (
         <div className={`hud-item ${snap.item ? 'has' : ''}`}>
           {snap.item ? ITEM_ICON[snap.item] : ''}
         </div>
       )}
+
+      {/* booster gauge (speed mode, KartRider-style) */}
+      {raceMode === 'speed' && (
+        <div className={`hud-gauge ${snap.boostGauge >= 1 ? 'full' : ''}`}>
+          <div className="hud-gauge-fill" style={{ width: `${Math.round(snap.boostGauge * 100)}%` }} />
+          <span className="hud-gauge-label">
+            {snap.boostGauge >= 1 ? '⚡ 부스터 준비! (E/Ctrl)' : 'BOOST'}
+          </span>
+        </div>
+      )}
+
+      {/* speed lines while boosting */}
+      {snap.boosting && <div className={`speedlines ${snap.boosterActive ? 'strong' : ''}`} />}
 
       {/* bottom-right: speed */}
       <div className="hud-speed">
@@ -120,7 +135,10 @@ export function Hud({
       {snap.wrongWay && <div className="hud-center wrongway">⟲ 반대 방향!</div>}
       {snap.finished && <div className="hud-center finish">FINISH!</div>}
 
-      <div className="hud-controls">↑↓←→ 주행 · Shift/Space 드리프트 {mode === 'multi' ? '· E 아이템' : ''} · R 리셋</div>
+      <div className="hud-controls">
+        ↑↓←→ 주행 · Shift/Space 드리프트{' '}
+        {raceMode === 'speed' ? '(게이지 충전) · E/Ctrl 부스터' : '· E/Ctrl 아이템'} · R 리셋
+      </div>
     </div>
   )
 }

@@ -51,6 +51,7 @@ export interface RoomSnapshot {
   raceId: number
   startAt: number
   courseId: string
+  raceMode: 'speed' | 'item'
   players: Record<string, PlayerInfo>
   finishes: Record<string, { raceId: number; totalMs: number; bestLapMs: number; at: number }>
 }
@@ -71,6 +72,7 @@ function parseRoomState(state: any): RoomSnapshot {
     raceId: state?.raceId ?? 0,
     startAt: state?.startAt ?? 0,
     courseId: state?.courseId ?? 'sunny',
+    raceMode: state?.raceMode === 'speed' ? 'speed' : 'item',
     players,
     finishes,
   }
@@ -250,8 +252,8 @@ class Net {
       .catch(() => {})
   }
 
-  startRace(courseId: string) {
-    return this.server?.remoteFunction('startRace', [courseId])
+  startRace(courseId: string, raceMode: 'speed' | 'item') {
+    return this.server?.remoteFunction('startRace', [courseId, raceMode])
   }
 
   finishRace(totalMs: number, bestLapMs: number) {

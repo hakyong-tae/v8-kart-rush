@@ -2,7 +2,8 @@
 // Deployed with: npx -y @agent8/deploy
 // Conventions: define the class only (no exports), no setTimeout/setInterval.
 
-const COURSE_IDS = ['sunny', 'neon', 'canyon']
+const COURSE_IDS = ['sunny', 'canyon', 'ice', 'neon']
+const RACE_MODES = ['speed', 'item']
 // sanity bounds for submitted race times (3 laps)
 const MIN_TOTAL_MS = 30 * 1000
 const MAX_TOTAL_MS = 30 * 60 * 1000
@@ -55,8 +56,9 @@ class Server {
     return await $room.getRoomState()
   }
 
-  async startRace(courseId) {
+  async startRace(courseId, raceMode) {
     if (!COURSE_IDS.includes(courseId)) throw new Error('invalid course')
+    if (!RACE_MODES.includes(raceMode)) raceMode = 'item'
     const state = await $room.getRoomState()
     const users = state.$users || []
     // only the host (first user in the room) can start
@@ -69,6 +71,7 @@ class Server {
       phase: 'racing',
       raceId: raceId,
       courseId: courseId,
+      raceMode: raceMode,
       startAt: Date.now() + 4500, // clients count down to this server timestamp
     }
     // clear previous finish records
@@ -76,7 +79,7 @@ class Server {
       if (k.indexOf('fin_') === 0) update[k] = null
     }
     await $room.updateRoomState(update)
-    await $room.broadcastToRoom('start', { raceId: raceId, courseId: courseId, startAt: update.startAt })
+    await $room.broadcastToRoom('start', { raceId: raceId, courseId: courseId, raceMode: raceMode, startAt: update.startAt })
     return update
   }
 

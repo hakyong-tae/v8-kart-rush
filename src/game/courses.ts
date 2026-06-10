@@ -19,6 +19,8 @@ export interface CourseTheme {
   road: number
   curbA: number
   curbB: number
+  rail: number
+  railAccent: number
   line: number
   sun: number
   sunIntensity: number
@@ -33,6 +35,8 @@ export interface CourseDef {
   difficulty: 1 | 2 | 3
   laps: number
   width: number // full road width
+  shoulder: number // grass strip between curb and guardrail
+  surface: 'road' | 'ice'
   points: [number, number][]
   boostPads: BoostPadDef[]
   itemRows: ItemBoxRowDef[]
@@ -48,6 +52,8 @@ export const COURSES: CourseDef[] = [
     difficulty: 1,
     laps: 3,
     width: 14,
+    shoulder: 3,
+    surface: 'road',
     points: [
       [-60, 0], [40, 0], [100, 8], [140, 45], [132, 95],
       [85, 122], [25, 112], [-30, 132], [-90, 126], [-132, 85],
@@ -64,9 +70,10 @@ export const COURSES: CourseDef[] = [
     ],
     decorSeed: 11,
     theme: {
-      sky: 0x87ceeb, fog: 0xbfe3f2, fogDensity: 0.0016,
-      ground: 0x6abe4f, road: 0x4a4a52, curbA: 0xe04438, curbB: 0xf2f2f2,
-      line: 0xffffff, sun: 0xfff2d8, sunIntensity: 1.15, ambient: 0.75,
+      sky: 0x6ecbff, fog: 0xcdeeff, fogDensity: 0.0013,
+      ground: 0x7ed957, road: 0x5d6273, curbA: 0xff5d4d, curbB: 0xffffff,
+      rail: 0xffffff, railAccent: 0xff5d4d,
+      line: 0xffffff, sun: 0xfff4da, sunIntensity: 1.3, ambient: 0.95,
     },
   },
   {
@@ -76,6 +83,8 @@ export const COURSES: CourseDef[] = [
     difficulty: 2,
     laps: 3,
     width: 12,
+    shoulder: 2.6,
+    surface: 'road',
     points: [
       [0, 0], [80, 2], [128, -18], [158, -60], [148, -110],
       [100, -132], [62, -100], [42, -62], [0, -52], [-40, -82],
@@ -94,9 +103,42 @@ export const COURSES: CourseDef[] = [
     ],
     decorSeed: 23,
     theme: {
-      sky: 0xf5c87a, fog: 0xf0d3a0, fogDensity: 0.0019,
-      ground: 0xc89455, road: 0x55504e, curbA: 0xd97a26, curbB: 0xf5ead6,
-      line: 0xfff3da, sun: 0xffd9a0, sunIntensity: 1.25, ambient: 0.65,
+      sky: 0xffd089, fog: 0xffe3b3, fogDensity: 0.0016,
+      ground: 0xe8b066, road: 0x6b6258, curbA: 0xff8c2e, curbB: 0xfff4e0,
+      rail: 0xf5e3c8, railAccent: 0xd96b26,
+      line: 0xfff3da, sun: 0xffd9a0, sunIntensity: 1.35, ambient: 0.85,
+    },
+  },
+  {
+    id: 'ice',
+    name: 'Ice Valley',
+    nameKo: '아이스 밸리',
+    difficulty: 2,
+    laps: 3,
+    width: 12.5,
+    shoulder: 2.8,
+    surface: 'ice', // slippery! lower grip
+    points: [
+      [0, 0], [90, -5], [150, 20], [170, 70], [140, 115],
+      [90, 125], [55, 95], [10, 105], [-30, 140], [-85, 150],
+      [-135, 120], [-150, 70], [-120, 30], [-150, -10], [-120, -45],
+      [-60, -40],
+    ],
+    boostPads: [
+      { t: 0.12, len: 0.016 },
+      { t: 0.6, len: 0.016 },
+    ],
+    itemRows: [
+      { t: 0.25, lanes: [-0.6, 0, 0.6] },
+      { t: 0.55, lanes: [-0.6, 0, 0.6] },
+      { t: 0.88, lanes: [-0.6, 0, 0.6] },
+    ],
+    decorSeed: 31,
+    theme: {
+      sky: 0xa9e4ff, fog: 0xe2f4ff, fogDensity: 0.0015,
+      ground: 0xf0f7fc, road: 0xa9d3e6, curbA: 0x3f8fe0, curbB: 0xffffff,
+      rail: 0xdff0fa, railAccent: 0x3f8fe0,
+      line: 0xffffff, sun: 0xeaf6ff, sunIntensity: 1.2, ambient: 1.0,
     },
   },
   {
@@ -106,6 +148,8 @@ export const COURSES: CourseDef[] = [
     difficulty: 3,
     laps: 3,
     width: 11,
+    shoulder: 2.4,
+    surface: 'road',
     points: [
       [0, 0], [70, 4], [112, 38], [102, 88], [62, 110],
       [52, 158], [92, 198], [62, 248], [0, 258], [-52, 230],
@@ -124,9 +168,10 @@ export const COURSES: CourseDef[] = [
     ],
     decorSeed: 47,
     theme: {
-      sky: 0x0a0e2a, fog: 0x131a40, fogDensity: 0.0024,
-      ground: 0x16331e, road: 0x33333d, curbA: 0x00d9ff, curbB: 0xff2d95,
-      line: 0x9fe8ff, sun: 0x8aa6ff, sunIntensity: 0.5, ambient: 0.45,
+      sky: 0x131a45, fog: 0x232c63, fogDensity: 0.002,
+      ground: 0x1d4030, road: 0x3c3c4d, curbA: 0x00d9ff, curbB: 0xff2d95,
+      rail: 0x4d5580, railAccent: 0x00d9ff,
+      line: 0x9fe8ff, sun: 0x8aa6ff, sunIntensity: 0.65, ambient: 0.6,
       night: true,
     },
   },
@@ -139,10 +184,10 @@ export function getCourse(id: string): CourseDef {
 }
 
 export const KART_COLORS = [
-  { id: 'red', model: 'raceCarRed', ui: '#e04438' },
-  { id: 'green', model: 'raceCarGreen', ui: '#3fa84c' },
-  { id: 'orange', model: 'raceCarOrange', ui: '#f08c1e' },
-  { id: 'white', model: 'raceCarWhite', ui: '#e8e8e8' },
+  { id: 'red', model: 'raceCarRed', ui: '#ff5d4d', rider: 0xffe14d },
+  { id: 'green', model: 'raceCarGreen', ui: '#43c463', rider: 0xff8c2e },
+  { id: 'orange', model: 'raceCarOrange', ui: '#ff9d2e', rider: 0x4aa8ff },
+  { id: 'white', model: 'raceCarWhite', ui: '#f2f2f2', rider: 0xff5d8a },
 ] as const
 
 export type KartColorId = (typeof KART_COLORS)[number]['id']
@@ -151,4 +196,8 @@ export function kartModelFor(
   color: string,
 ): 'raceCarRed' | 'raceCarGreen' | 'raceCarOrange' | 'raceCarWhite' {
   return KART_COLORS.find((k) => k.id === color)?.model ?? 'raceCarRed'
+}
+
+export function riderColorFor(color: string): number {
+  return KART_COLORS.find((k) => k.id === color)?.rider ?? 0xffe14d
 }

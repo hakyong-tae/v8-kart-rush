@@ -1,7 +1,7 @@
 import * as THREE from 'three'
-import { getCourse, kartModelFor, type CourseDef } from './courses'
+import { getCourse, kartModelFor, riderColorFor, type CourseDef } from './courses'
 import { Track, buildTrackMeshes } from './track'
-import { Assets, buildDecorations } from './assets'
+import { Assets, buildDecorations, makeRider, makeClouds } from './assets'
 import { Kart, resolveKartCollision } from './kart'
 import { Input } from './input'
 import { ItemManager, rollItem, type ItemType } from './items'
@@ -36,6 +36,8 @@ export interface HudSnapshot {
   driftTier: number
   drifting: boolean
   boosting: boolean
+  boostGauge: number
+  boosterActive: boolean
   wrongWay: boolean
   finished: boolean
   finalTotalMs: number
@@ -46,6 +48,7 @@ export interface HudSnapshot {
 export interface GameOpts {
   courseId: string
   mode: 'time' | 'multi'
+  raceMode: 'speed' | 'item' // speed = booster gauge (KartRider 스피드전), item = items
   startAt?: number // server-clock ms (multi)
   players?: Record<string, PlayerInfo> // multi: account -> info
   onSnapshot: (snap: HudSnapshot) => void
@@ -132,6 +135,9 @@ export class Game {
     this.scene.add(group)
     this.scene.add(buildDecorations(this.track, this.assets))
 
+    // sky clouds (daytime courses)
+    if (!theme.night) this.scene.add(makeClouds(this.course.decorSeed))
+
     // local kart
     const slot = this.mySlot()
     this.kart = new Kart(this.track, slot)
@@ -148,6 +154,11 @@ export class Game {
       fallback.position.y = 0.5
       this.kartGroup.add(fallback)
     }
+    // chibi rider on top
+    const rider = makeRider(riderColorFor(net.color))
+    rider.scale.setScalar(0.85)
+    rider.position.set(0, 0.45, -0.3)
+    this.kartGroup.add(rider)
     this.scene.add(this.kartGroup)
 
     // boost flame + drift sparks
@@ -167,8 +178,8 @@ export class Game {
     this.sparkL.visible = this.sparkR.visible = false
     this.kartGroup.add(this.sparkL, this.sparkR)
 
-    // items (multiplayer only — Time Attack stays fair for the leaderboard)
-    this.items = new ItemManager(this.track, opts.mode === 'multi')
+    // items only in item mode — speed mode (incl. Time Attack) uses the booster gauge
+    this.items = new ItemManager(this.track, opts.raceMode === 'item')
     this.scene.add(this.items.group)
 
     // remote players
@@ -213,6 +224,10 @@ export class Game {
       model.rotation.y += KART_MODEL_YAW
       group.add(model)
     }
+    const rider = makeRider(riderColorFor(color))
+    rider.scale.setScalar(0.85)
+    rider.position.set(0, 0.45, -0.3)
+    group.add(rider)
     const slot = Object.keys(this.opts.players ?? {})
       .sort((a, b) => (this.opts.players![a].joinedAt ?? 0) - (this.opts.players![b].joinedAt ?? 0))
       .indexOf(account)
@@ -335,6 +350,7 @@ export class Game {
       if (remain <= 0) {
         this.phase = 'racing'
         this.lapStart = this.goTime
+        audio.startMusic()
       }
     }
 
@@ -344,9 +360,16 @@ export class Game {
     this.acc += dt
     while (this.acc >= PHYS_DT) {
       this.acc -= PHYS_DT
-      const ev = this.kart.step(PHYS_DT, this.input.state, canDrive && !this.kart.finished)
+      const ev = this.kart.step(
+        PHYS_DT,
+        this.input.state,
+        canDrive && !this.kart.finished,
+        this.opts.raceMode === 'speed',
+      )
       if (ev.driftStarted) audio.driftTick(0)
       if (ev.driftReleased === 1 || ev.driftReleased === 2) audio.boost()
+      if (ev.gaugeFilled) audio.gaugeFull()
+      if (ev.wallBumped) audio.wallBump()
       if (ev.lapCrossed && this.phase === 'racing' && !this.kart.finished) {
         if (this.kart.cpTotal > 1) {
           const lapMs = now - this.lapStart
@@ -362,7 +385,13 @@ export class Game {
     }
 
     if (this.input.consumeReset()) this.kart.resetToTrack()
-    if (this.input.consumeUseItem()) this.useHeldItem()
+    if (this.input.consumeUseItem()) {
+      if (this.opts.raceMode === 'speed') {
+        if (this.phase === 'racing' && this.kart.fireBooster()) audio.booster()
+      } else {
+        this.useHeldItem()
+      }
+    }
 
     // boost pads
     if (this.phase === 'racing') {
@@ -459,6 +488,7 @@ export class Game {
     this.finalBestLapMs = Math.min(...this.lapTimes)
     audio.finish()
     audio.stopEngine()
+    audio.stopMusic()
     this.opts.onFinish(this.finalTotalMs, this.finalBestLapMs)
   }
 
@@ -473,10 +503,14 @@ export class Game {
     while (dh < -Math.PI) dh += Math.PI * 2
     this.kartGroup.rotation.y += dh * Math.min(1, 14 * dt)
 
-    this.boostFlame.visible = k.boostT > 0
+    this.boostFlame.visible = k.boostT > 0 || k.boosterT > 0
     if (this.boostFlame.visible) {
-      const s = 0.8 + 0.4 * Math.sin(now * 0.04)
-      this.boostFlame.scale.set(s, s, s)
+      const big = k.boosterT > 0 ? 1.8 : 1 // manual booster = huge flame
+      const s = (0.8 + 0.4 * Math.sin(now * 0.04)) * big
+      this.boostFlame.scale.set(s, s, s * 1.3)
+      ;(this.boostFlame.material as THREE.MeshBasicMaterial).color.setHex(
+        k.boosterT > 0 ? 0x37c8ff : 0xffb028,
+      )
     }
     const drifting = k.driftDir !== 0
     this.sparkL.visible = this.sparkR.visible = drifting && k.driftTier > 0
@@ -493,22 +527,27 @@ export class Game {
   private camPos = new THREE.Vector3()
   private camInit = false
 
+  private fovPunch = 0
+
   private updateCamera(dt: number) {
     const k = this.kart
-    const back = 8.2
+    // KartRider-ish: lower and closer chase cam
+    const back = 7.0
     const fwdX = Math.sin(k.heading)
     const fwdZ = Math.cos(k.heading)
-    const target = new THREE.Vector3(k.pos.x - fwdX * back, 4.4, k.pos.z - fwdZ * back)
+    const target = new THREE.Vector3(k.pos.x - fwdX * back, 3.4, k.pos.z - fwdZ * back)
     if (!this.camInit) {
       this.camPos.copy(target)
       this.camInit = true
     }
-    const speedZoom = 1 + Math.min(0.25, Math.abs(k.speed) / 110)
-    this.camPos.lerp(target, Math.min(1, 5.5 * dt))
+    const boosting = k.boostT > 0 || k.boosterT > 0
+    this.fovPunch += ((boosting ? 1 : 0) - this.fovPunch) * Math.min(1, 6 * dt)
+    const speedZoom = 1 + Math.min(0.2, Math.abs(k.speed) / 140)
+    this.camPos.lerp(target, Math.min(1, 6 * dt))
     this.camera.position.copy(this.camPos)
-    this.camera.fov = 70 * speedZoom
+    this.camera.fov = 72 * speedZoom + this.fovPunch * 13
     this.camera.updateProjectionMatrix()
-    this.camera.lookAt(k.pos.x + fwdX * 5, 1.4, k.pos.z + fwdZ * 5)
+    this.camera.lookAt(k.pos.x + fwdX * 6, 1.2, k.pos.z + fwdZ * 6)
   }
 
   private snapshot(now: number): HudSnapshot {
@@ -545,7 +584,9 @@ export class Game {
       item: this.heldItem,
       driftTier: k.driftTier,
       drifting: k.driftDir !== 0,
-      boosting: k.boostT > 0,
+      boosting: k.boostT > 0 || k.boosterT > 0,
+      boostGauge: k.boostGauge,
+      boosterActive: k.boosterT > 0,
       wrongWay: k.wrongWayT > 0.8,
       finished: k.finished,
       finalTotalMs: this.finalTotalMs,
@@ -572,6 +613,7 @@ export class Game {
     this.input.dispose()
     this.netUnsubs.forEach((u) => u())
     audio.stopEngine()
+    audio.stopMusic()
     this.items.dispose()
     this.renderer.dispose()
   }

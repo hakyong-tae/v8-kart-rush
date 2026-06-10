@@ -12,7 +12,7 @@ type Screen =
   | { name: 'title' }
   | { name: 'select'; mode: 'time' | 'multi' }
   | { name: 'lobby'; courseId: string; roomId: string }
-  | { name: 'game'; mode: 'time' | 'multi'; courseId: string; startAt?: number; raceId?: number }
+  | { name: 'game'; mode: 'time' | 'multi'; raceMode: 'speed' | 'item'; courseId: string; startAt?: number; raceId?: number }
   | { name: 'results'; mode: 'time' | 'multi'; courseId: string; totalMs: number; bestLapMs: number; raceId?: number; roomId?: string }
 
 const assets = new Assets()
@@ -218,7 +218,7 @@ function SelectScreen({
 
   const pick = async (courseId: string) => {
     if (mode === 'time') {
-      go({ name: 'game', mode: 'time', courseId })
+      go({ name: 'game', mode: 'time', raceMode: 'speed', courseId })
       return
     }
     setJoining(courseId)
@@ -296,6 +296,7 @@ function LobbyScreen({
 }) {
   const [snap, setSnap] = useState<RoomSnapshot | null>(null)
   const [myReady, setMyReady] = useState(false)
+  const [raceMode, setRaceMode] = useState<'speed' | 'item'>('item')
   const startedRef = useRef(false)
   const course = getCourse(courseId)
 
@@ -304,7 +305,14 @@ function LobbyScreen({
       setSnap(s)
       if (s.phase === 'racing' && s.startAt > net.serverNow() - 5000 && !startedRef.current) {
         startedRef.current = true
-        go({ name: 'game', mode: 'multi', courseId: s.courseId, startAt: s.startAt, raceId: s.raceId })
+        go({
+          name: 'game',
+          mode: 'multi',
+          raceMode: s.raceMode,
+          courseId: s.courseId,
+          startAt: s.startAt,
+          raceId: s.raceId,
+        })
       }
     })
     return unsub
@@ -368,16 +376,34 @@ function LobbyScreen({
           {myReady ? '✓ READY' : 'READY'}
         </button>
         {isHost && (
-          <button
-            className="btn primary"
-            disabled={racing}
-            onClick={() => net.startRace(courseId)?.catch((e) => alert(String(e?.message ?? e)))}
-          >
-            🏁 레이스 시작
-          </button>
+          <>
+            <button
+              className="btn"
+              disabled={racing}
+              onClick={() => setRaceMode(raceMode === 'item' ? 'speed' : 'item')}
+            >
+              {raceMode === 'item' ? '🎁 아이템전' : '⚡ 스피드전'}
+            </button>
+            <button
+              className="btn primary"
+              disabled={racing}
+              onClick={() =>
+                net.startRace(courseId, raceMode)?.catch((e) => alert(String(e?.message ?? e)))
+              }
+            >
+              🏁 레이스 시작
+            </button>
+          </>
         )}
       </div>
       {!isHost && <p className="dim">방장이 시작하면 자동으로 출발합니다</p>}
+      {isHost && (
+        <p className="dim">
+          {raceMode === 'item'
+            ? '아이템전: 아이템 박스로 공격/방어'
+            : '스피드전: 드리프트로 게이지 충전 → 부스터'}
+        </p>
+      )}
     </div>
   )
 }
@@ -408,6 +434,7 @@ function GameScreen({
       game = new Game(canvas, assets, {
         courseId: screen.courseId,
         mode: screen.mode,
+        raceMode: screen.raceMode,
         startAt: screen.startAt,
         players: screen.mode === 'multi' ? playersCacheRef.players : undefined,
         onSnapshot: setSnap,
@@ -454,7 +481,7 @@ function GameScreen({
   return (
     <div className="game-wrap">
       <canvas ref={canvasRef} className="game-canvas" />
-      <Hud snap={snap} outline={outline} mode={screen.mode} />
+      <Hud snap={snap} outline={outline} mode={screen.mode} raceMode={screen.raceMode} />
       <button
         className="btn small hud-quit"
         onClick={async () => {
@@ -583,7 +610,9 @@ function ResultsScreen({
           <>
             <button
               className="btn primary"
-              onClick={() => go({ name: 'game', mode: 'time', courseId: screen.courseId })}
+              onClick={() =>
+                go({ name: 'game', mode: 'time', raceMode: 'speed', courseId: screen.courseId })
+              }
             >
               🔄 다시 도전
             </button>
