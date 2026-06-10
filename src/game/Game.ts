@@ -36,19 +36,26 @@ export interface Placement {
   totalMs: number | null // null = did not finish before player
   isPlayer: boolean
   color: string
+  team?: Team
 }
 
 export interface FinishExtra {
   placements?: Placement[]
   ghost?: GhostData
+  teamScores?: { blue: number; red: number }
 }
 
 export type MirrorReason = 'missile' | 'overtake' | 'hit'
+
+export type Team = 'blue' | 'red'
+const TEAM_COLORS: Record<Team, number> = { blue: 0x3a8dff, red: 0xff4d3d }
+const RANK_POINTS = [10, 8, 6, 5, 4, 3, 2, 1]
 
 export interface StandingRow {
   name: string
   isMe: boolean
   color: string
+  team?: Team
 }
 
 export interface HudSnapshot {
@@ -64,6 +71,7 @@ export interface HudSnapshot {
   totalMs: number
   rank: number
   totalRacers: number
+  teams: { blue: number; red: number } | null // live team scores (team race)
   speed: number
   items: (ItemType | null)[]
   shieldT: number
@@ -84,6 +92,7 @@ export interface GameOpts {
   courseId: string
   mode: 'time' | 'multi'
   raceMode: 'speed' | 'item'
+  teamRace?: boolean // 4:4 — me + 3 AI (blue) vs 4 AI (red), speed rules
   aiCount?: number // single item race: number of CPU karts
   ghost?: GhostData | null // single speed race: ghost to race against
   startAt?: number // server-clock ms (multi)
@@ -112,6 +121,7 @@ interface AiActor {
   id: string
   name: string
   color: string // kart id
+  team?: Team
   kart: Kart
   group: THREE.Group
   slot: ItemType | null
@@ -129,8 +139,8 @@ interface AiActor {
 
 const PHYS_DT = 1 / 120
 const AI_NAMES: Record<string, string[]> = {
-  ko: ['로키', '제트', '핀', '루나', '볼트', '치치'],
-  en: ['Rocky', 'Jet', 'Fin', 'Luna', 'Bolt', 'Chichi'],
+  ko: ['로키', '제트', '핀', '루나', '볼트', '치치', '미오', '두두'],
+  en: ['Rocky', 'Jet', 'Fin', 'Luna', 'Bolt', 'Chichi', 'Mio', 'Dudu'],
 }
 
 function makeKartVisual(assets: Assets, kartId: string, charId: string): THREE.Group {
@@ -302,9 +312,17 @@ export class Game {
     this.rescuer.visible = false
     this.scene.add(this.rescuer)
 
-    // single-player item race: CPU karts
+    // single-player item race: CPU karts. Team race: 4:4, speed rules.
     if (opts.mode === 'time' && opts.raceMode === 'item') {
       this.spawnAis(opts.aiCount ?? 3, slot)
+    } else if (opts.mode === 'time' && opts.teamRace) {
+      this.spawnAis(7, slot)
+      // alternate teams down the grid so neither side owns the front rows
+      this.ais.forEach((ai, i) => {
+        ai.team = i % 2 === 0 ? 'red' : 'blue'
+        this.addTeamRing(ai.group, ai.team)
+      })
+      this.addTeamRing(this.kartGroup, 'blue')
     }
 
     // single-player speed race: ghost of the record holder
@@ -353,7 +371,7 @@ export class Game {
     const myKart = net.color
     const kartPool = KARTS.map((k) => k.id).filter((id) => id !== myKart)
     const charPool = CHARACTERS.map((c) => c.id).filter((id) => id !== net.character)
-    for (let i = 0; i < Math.min(count, 5); i++) {
+    for (let i = 0; i < Math.min(count, 7); i++) {
       const color = kartPool[i % kartPool.length]
       const charId = charPool[i % charPool.length]
       const stats = combineStats(getCharacter(charId), getKart(color))
@@ -381,6 +399,39 @@ export class Game {
         startCharge: 0.4 + this.itemRand() * 0.5,
       })
     }
+  }
+
+  private addTeamRing(group: THREE.Group, team: Team) {
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(1.15, 1.55, 24),
+      new THREE.MeshBasicMaterial({
+        color: TEAM_COLORS[team],
+        transparent: true,
+        opacity: 0.55,
+        side: THREE.DoubleSide,
+      }),
+    )
+    ring.rotation.x = -Math.PI / 2
+    ring.position.y = 0.04
+    group.add(ring)
+  }
+
+  /** Live team scores from current race order (KartRider-style rank points). */
+  private teamScores(): { blue: number; red: number } {
+    const order = [
+      { team: 'blue' as Team, prog: this.kart.progress, fin: this.kart.finished ? this.finalTotalMs : null },
+      ...this.ais.map((a) => ({ team: a.team ?? 'red', prog: a.kart.progress, fin: a.finishMs })),
+    ].sort((a, b) => {
+      if (a.fin !== null && b.fin !== null) return a.fin - b.fin
+      if (a.fin !== null) return -1
+      if (b.fin !== null) return 1
+      return b.prog - a.prog
+    })
+    const score = { blue: 0, red: 0 }
+    order.forEach((r, i) => {
+      score[r.team] += RANK_POINTS[Math.min(i, RANK_POINTS.length - 1)]
+    })
+    return score
   }
 
   private addRemote(account: string, color: string, charId?: string) {
@@ -1058,12 +1109,14 @@ export class Game {
         totalMs: this.kart.finished ? this.finalTotalMs : null,
         isPlayer: true,
         color: net.color,
+        team: this.opts.teamRace ? ('blue' as Team) : undefined,
       },
       ...this.ais.map((ai) => ({
         name: ai.name,
         totalMs: ai.finishMs,
         isPlayer: false,
         color: ai.color,
+        team: ai.team,
       })),
     ]
     // finished karts first by time, then unfinished by progress
@@ -1086,8 +1139,9 @@ export class Game {
     audio.stopEngine()
     audio.stopMusic()
     const extra: FinishExtra = {}
-    if (this.opts.mode === 'time' && this.opts.raceMode === 'item') {
+    if (this.opts.mode === 'time' && (this.opts.raceMode === 'item' || this.opts.teamRace)) {
       extra.placements = this.placements(now)
+      if (this.opts.teamRace) extra.teamScores = this.teamScores()
     }
     if (this.opts.mode === 'time' && this.opts.raceMode === 'speed' && this.ghostRec.length > 0) {
       extra.ghost = {
@@ -1169,18 +1223,35 @@ export class Game {
     for (const ai of this.ais) {
       if (ai.kart.progress > k.progress) rank++
     }
+    const teamCss: Record<Team, string> = { blue: '#3a8dff', red: '#ff4d3d' }
     const dots: MinimapDot[] = [{ x: k.pos.x, z: k.pos.z, color: '#fff', self: true }]
     for (const r of this.remotes.values()) {
       if (r.group.visible)
         dots.push({ x: r.group.position.x, z: r.group.position.z, color: getKart(r.color).ui })
     }
     for (const ai of this.ais) {
-      dots.push({ x: ai.kart.pos.x, z: ai.kart.pos.z, color: getKart(ai.color).ui })
+      dots.push({
+        x: ai.kart.pos.x,
+        z: ai.kart.pos.z,
+        color: ai.team ? teamCss[ai.team] : getKart(ai.color).ui,
+      })
     }
     // live standings (all racers ordered by progress)
-    const rows: { name: string; isMe: boolean; color: string; prog: number }[] = [
-      { name: net.nickname || 'Racer', isMe: true, color: net.color, prog: k.progress },
-      ...this.ais.map((a) => ({ name: a.name, isMe: false, color: a.color, prog: a.kart.progress })),
+    const rows: { name: string; isMe: boolean; color: string; prog: number; team?: Team }[] = [
+      {
+        name: net.nickname || 'Racer',
+        isMe: true,
+        color: net.color,
+        prog: k.progress,
+        team: this.opts.teamRace ? 'blue' : undefined,
+      },
+      ...this.ais.map((a) => ({
+        name: a.name,
+        isMe: false,
+        color: a.color,
+        prog: a.kart.progress,
+        team: a.team,
+      })),
       ...[...this.remotes.values()]
         .filter((r) => r.group.visible)
         .map((r) => ({
@@ -1196,7 +1267,8 @@ export class Game {
       phase: this.phase,
       countdown: Math.max(0, (this.goTime - now) / 1000),
       startCharge: this.startCharge,
-      standings: rows.slice(0, 8).map(({ name, isMe, color }) => ({ name, isMe, color })),
+      standings: rows.slice(0, 8).map(({ name, isMe, color, team }) => ({ name, isMe, color, team })),
+      teams: this.opts.teamRace ? this.teamScores() : null,
       mirror: {
         active: now < this.mirrorUntil && this.phase !== 'finished',
         reason: this.mirrorReason,

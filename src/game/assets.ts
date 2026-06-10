@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { Track, rng } from './track'
 import type { CharacterDef } from './roster'
+import { ADS, makeAdBoard } from './ads'
 
 // Kenney Racing Kit + Car Kit (CC0) models, served from /models/
 const MODEL_NAMES = [
@@ -394,6 +395,24 @@ export function buildDecorations(track: Track, assets: Assets): THREE.Group {
   place(assets.spawn('tentLong', 4), Math.floor(N * 0.75), -(hw + 13), true)
 
   const wall = track.wallDist
+
+  // Trackside ad boards (real ads / Verse8 games — see ads.ts)
+  {
+    const slots = 5
+    for (let i = 0; i < slots; i++) {
+      const idx = Math.floor(((i + 0.5) / slots) * N)
+      const side = i % 2 === 0 ? 1 : -1
+      // keep boards away from cliff pit edges
+      if (!track.course.open && track.pitAtIndex(idx, side as 1 | -1)) continue
+      const board = makeAdBoard(ADS[i % ADS.length])
+      const s = track.sampleAt(idx)
+      const lat = side * (wall + (track.course.open ? -6 : 3.2))
+      board.position.set(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
+      // face the road
+      board.rotation.y = Math.atan2(-s.nor.x * side, -s.nor.z * side)
+      group.add(board)
+    }
+  }
 
   // Open island maps (beach): buoys mark the boundary, palms & umbrellas on the sand
   if (track.course.open) {

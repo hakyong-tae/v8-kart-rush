@@ -98,7 +98,16 @@ export function Hud({
             {snap.standings.map((s, i) => (
               <div key={i} className={`standing-row ${s.isMe ? 'me' : ''}`}>
                 <em>{i + 1}</em>
-                <span className="color-dot small" style={{ background: getKart(s.color).ui }} />
+                <span
+                  className="color-dot small"
+                  style={{
+                    background: s.team
+                      ? s.team === 'blue'
+                        ? '#3a8dff'
+                        : '#ff4d3d'
+                      : getKart(s.color).ui,
+                  }}
+                />
                 <span className="standing-name">{s.name}</span>
               </div>
             ))}
@@ -117,6 +126,19 @@ export function Hud({
           </div>
         )}
       </div>
+
+      {/* team score bar (4:4 team race) */}
+      {snap.teams && (
+        <div className="team-bar">
+          <span className="team-chip blue">
+            {t('teamBlue')} {snap.teams.blue}
+          </span>
+          <span className="team-vs">:</span>
+          <span className="team-chip red">
+            {snap.teams.red} {t('teamRed')}
+          </span>
+        </div>
+      )}
 
       {/* top-right: rank (multi / AI race) */}
       {snap.totalRacers > 1 && (

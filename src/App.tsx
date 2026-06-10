@@ -26,6 +26,7 @@ type Screen =
       raceId?: number
       ghost?: GhostData | null
       aiCount?: number
+      teamRace?: boolean
     }
   | {
       name: 'results'
@@ -37,6 +38,8 @@ type Screen =
       raceId?: number
       placements?: Placement[]
       ghost?: GhostData
+      teamRace?: boolean
+      teamScores?: { blue: number; red: number }
     }
 
 const assets = new Assets()
@@ -261,7 +264,7 @@ function SelectScreen({
   const [boards, setBoards] = useState<Record<string, LeaderboardEntry[]>>({})
   const [roomCode, setRoomCode] = useState('')
   const [joining, setJoining] = useState<string | null>(null)
-  const [raceMode, setRaceMode] = useState<'speed' | 'item'>('speed')
+  const [raceMode, setRaceMode] = useState<'speed' | 'item' | 'team'>('speed')
 
   useEffect(() => {
     let alive = true
@@ -282,6 +285,9 @@ function SelectScreen({
       if (raceMode === 'item') {
         // single item race vs CPU karts
         go({ name: 'game', mode: 'time', raceMode: 'item', courseId, aiCount: 3 })
+      } else if (raceMode === 'team') {
+        // 4:4 team speed race (drift practice)
+        go({ name: 'game', mode: 'time', raceMode: 'speed', teamRace: true, courseId })
       } else {
         // speed race: fetch the #1 ghost to race against
         setJoining(courseId)
@@ -324,6 +330,12 @@ function SelectScreen({
               onClick={() => setRaceMode('speed')}
             >
               {t('speedToggle')} <small>{t('speedToggleSub')}</small>
+            </button>
+            <button
+              className={`btn small ${raceMode === 'team' ? 'on' : ''}`}
+              onClick={() => setRaceMode('team')}
+            >
+              {t('teamToggle')} <small>{t('teamToggleSub')}</small>
             </button>
             <button
               className={`btn small ${raceMode === 'item' ? 'on' : ''}`}
@@ -518,6 +530,7 @@ function GameScreen({
         courseId: screen.courseId,
         mode: screen.mode,
         raceMode: screen.raceMode,
+        teamRace: screen.teamRace,
         startAt: screen.startAt,
         ghost: screen.ghost,
         aiCount: screen.aiCount,
@@ -539,6 +552,8 @@ function GameScreen({
               raceId: screen.raceId,
               placements: extra.placements,
               ghost: extra.ghost,
+              teamRace: screen.teamRace,
+              teamScores: extra.teamScores,
             })
           }, 1800)
         },
@@ -610,8 +625,8 @@ function ResultsScreen({
   const [roomSnap, setRoomSnap] = useState<RoomSnapshot | null>(null)
   const submittedRef = useRef(false)
 
-  // single item race (vs AI): placements only, never submitted to the leaderboard
-  const isAiRace = screen.mode === 'time' && screen.raceMode === 'item'
+  // AI races (item / team): placements only, never submitted to the leaderboard
+  const isAiRace = screen.mode === 'time' && (screen.raceMode === 'item' || screen.teamRace)
 
   useEffect(() => {
     if (isAiRace) return
@@ -664,6 +679,23 @@ function ResultsScreen({
             })}
           </p>
         )}
+        {screen.teamRace && screen.teamScores && (
+          <div className="team-result">
+            <p className="team-banner">
+              {screen.teamScores.blue === screen.teamScores.red
+                ? t('teamDraw')
+                : t('teamWin', {
+                    team:
+                      screen.teamScores.blue > screen.teamScores.red ? t('teamBlue') : t('teamRed'),
+                  })}
+            </p>
+            <p className="team-scoreline">
+              <span className="team-chip blue">{t('teamBlue')} {screen.teamScores.blue}</span>
+              <span className="dim"> : </span>
+              <span className="team-chip red">{screen.teamScores.red} {t('teamRed')}</span>
+            </p>
+          </div>
+        )}
         {!isAiRace && screen.mode === 'time' && submitResult && (
           <p className={submitResult.updated ? 'accent' : 'dim'}>
             {submitResult.updated
@@ -682,7 +714,10 @@ function ResultsScreen({
             {(screen.placements ?? []).map((p, i) => (
               <li key={i} className={p.isPlayer ? 'me' : ''}>
                 <span className="rank">{i + 1}</span>
-                <span className="color-dot small" style={{ background: getKart(p.color).ui }} />
+                <span
+                  className="color-dot small"
+                  style={{ background: p.team ? (p.team === 'blue' ? '#3a8dff' : '#ff4d3d') : getKart(p.color).ui }}
+                />
                 {p.name}
                 {p.isPlayer && <> {t('me')}</>}
                 <span className="t">{p.totalMs !== null ? fmtTime(p.totalMs) : t('stillRacing')}</span>
@@ -736,7 +771,9 @@ function ResultsScreen({
             <button
               className="btn primary"
               onClick={async () => {
-                if (isAiRace) {
+                if (screen.teamRace) {
+                  go({ name: 'game', mode: 'time', raceMode: 'speed', teamRace: true, courseId: screen.courseId })
+                } else if (isAiRace) {
                   go({ name: 'game', mode: 'time', raceMode: 'item', courseId: screen.courseId, aiCount: 3 })
                 } else {
                   const ghost = await net.getTopGhost(screen.courseId)

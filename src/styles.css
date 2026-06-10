@@ -958,6 +958,58 @@ body {
   outline: 1px solid rgba(255, 225, 77, 0.4);
 }
 
+/* team race */
+.team-bar {
+  position: absolute;
+  top: 56px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(8, 12, 30, 0.55);
+  border-radius: 12px;
+  padding: 6px 14px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+}
+
+.team-vs {
+  color: #8a93c4;
+}
+
+.team-chip {
+  padding: 2px 10px;
+  border-radius: 8px;
+  font-weight: 900;
+}
+
+.team-chip.blue {
+  background: rgba(58, 141, 255, 0.3);
+  color: #9cc4ff;
+}
+
+.team-chip.red {
+  background: rgba(255, 77, 61, 0.3);
+  color: #ffb3ab;
+}
+
+.team-result {
+  margin-top: 6px;
+}
+
+.team-banner {
+  font-size: 22px;
+  font-weight: 900;
+  color: #ffe14d;
+}
+
+.team-scoreline {
+  margin-top: 4px;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* settings */
 .settings-card {
   width: min(520px, 92vw);
