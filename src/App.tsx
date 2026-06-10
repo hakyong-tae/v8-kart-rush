@@ -5,6 +5,7 @@ import { Track } from './game/track'
 import { Assets } from './game/assets'
 import { Game, type HudSnapshot } from './game/Game'
 import { Hud } from './ui/Hud'
+import { ComboPreview } from './ui/ComboPreview'
 import { net, type NetStatus, type RoomSnapshot, type LeaderboardEntry } from './net/net'
 import { audio } from './game/audio'
 import { fmtTime } from './util'
@@ -105,6 +106,7 @@ function TitleScreen({ netStatus, go }: { netStatus: NetStatus; go: (s: Screen) 
                   {c.emoji}
                 </span>
                 <b>{c.nameKo}</b>
+                <small>{c.tagline}</small>
               </button>
             ))}
           </div>
@@ -131,6 +133,8 @@ function TitleScreen({ netStatus, go }: { netStatus: NetStatus; go: (s: Screen) 
           </div>
         </div>
       </div>
+
+      <ComboPreview assets={assets} charId={charId} kartId={color} />
 
       <div className="menu">
         <button

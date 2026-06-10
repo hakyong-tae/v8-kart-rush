@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { getCourse, type CourseDef } from './courses'
-import { getKart, getCharacter } from './roster'
+import { getKart, getCharacter, combineStats } from './roster'
 import { Track, buildTrackMeshes } from './track'
 import { Assets, buildDecorations, makeRider, makeClouds } from './assets'
 import { Kart, resolveKartCollision } from './kart'
@@ -142,10 +142,11 @@ export class Game {
     // sky clouds (daytime courses)
     if (!theme.night) this.scene.add(makeClouds(this.course.decorSeed))
 
-    // local kart (kart model + stats from roster, character cosmetic on top)
+    // local kart — final stats are the character x kart combination
     const slot = this.mySlot()
     const myKart = getKart(net.color)
-    this.kart = new Kart(this.track, slot, myKart.stats)
+    const myChar = getCharacter(net.character)
+    this.kart = new Kart(this.track, slot, combineStats(myChar, myKart))
     const model = this.assets.spawn(myKart.model, 2.4, 'z')
     if (model) {
       model.rotation.y += KART_MODEL_YAW
