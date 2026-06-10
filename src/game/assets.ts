@@ -3,8 +3,14 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { Track, rng } from './track'
 import type { CharacterDef } from './roster'
 
-// Kenney Racing Kit (CC0) models, served from /models/
+// Kenney Racing Kit + Car Kit (CC0) models, served from /models/
 const MODEL_NAMES = [
+  // kart bodies (Car Kit — each kart type is a different vehicle)
+  'race',
+  'hatchback-sports',
+  'sedan-sports',
+  'race-future',
+  // legacy racing-kit cars (kept for decoration use)
   'raceCarRed',
   'raceCarGreen',
   'raceCarOrange',
@@ -73,7 +79,7 @@ export class Assets {
   }
 
   // Clone a model scaled so its bounding-box size along `axis` equals `target`.
-  spawn(name: ModelName, target: number, axis: 'x' | 'y' | 'z' = 'y'): THREE.Group | null {
+  spawn(name: ModelName | string, target: number, axis: 'x' | 'y' | 'z' = 'y'): THREE.Group | null {
     const src = this.models.get(name)
     if (!src) return null
     const clone = src.clone(true)

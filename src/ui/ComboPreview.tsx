@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { Assets, makeRider } from '../game/assets'
-import { getCharacter, getKart, combineStats } from '../game/roster'
+import { getCharacter, getKart, combinePoints } from '../game/roster'
 
 const STAT_LABELS: { key: 'speed' | 'accel' | 'grip' | 'gauge'; label: string }[] = [
   { key: 'speed', label: '최고속도' },
@@ -10,9 +10,14 @@ const STAT_LABELS: { key: 'speed' | 'accel' | 'grip' | 'gauge'; label: string }[
   { key: 'gauge', label: '게이지' },
 ]
 
-// combined multipliers land in ~0.91..1.13 — map onto a readable bar
-function barWidth(v: number): string {
-  return `${Math.round(THREE.MathUtils.clamp(((v - 0.85) / 0.3) * 100, 8, 100))}%`
+// additive points land in ~-10..+24 — map onto a readable bar (0pt = center)
+function barWidth(points: number): string {
+  return `${Math.round(THREE.MathUtils.clamp(((points + 15) / 40) * 100, 8, 100))}%`
+}
+
+function fmtPts(s: { speed: number; accel: number; grip: number; gauge: number }): string {
+  const sum = s.speed + s.accel + s.grip + s.gauge
+  return sum > 0 ? `+${sum}` : `${sum}`
 }
 
 export function ComboPreview({
@@ -77,16 +82,19 @@ export function ComboPreview({
     const kart = getKart(kartId)
     const char = getCharacter(charId)
     const model = assets.spawn(kart.model, 2.4, 'z')
-    if (model) group.add(model)
+    if (model) {
+      model.rotation.y = Math.PI
+      group.add(model)
+    }
     const rider = makeRider(char)
-    rider.scale.setScalar(0.85)
-    rider.position.set(0, 0.45, -0.3)
+    rider.scale.setScalar(kart.riderScale)
+    rider.position.set(...kart.riderPos)
     group.add(rider)
   }, [assets, charId, kartId])
 
   const char = getCharacter(charId)
   const kart = getKart(kartId)
-  const stats = combineStats(char, kart)
+  const points = combinePoints(char, kart)
 
   return (
     <div className="card combo">
@@ -102,15 +110,17 @@ export function ComboPreview({
           <div key={key} className="stat-row">
             <span className="stat-label">{label}</span>
             <span className="stat-track">
-              <i style={{ width: barWidth(stats[key]) }} />
+              <i style={{ width: barWidth(points[key]) }} />
               <em className="stat-base" />
             </span>
-            <span className={`stat-val ${stats[key] > 1.001 ? 'up' : stats[key] < 0.999 ? 'down' : ''}`}>
-              {Math.round(stats[key] * 100)}
+            <span className={`stat-val ${points[key] > 0 ? 'up' : points[key] < 0 ? 'down' : ''}`}>
+              {100 + points[key]}
             </span>
           </div>
         ))}
-        <p className="dim combo-hint">캐릭터 보너스 × 카트 스탯 = 최종 (100 = 기준)</p>
+        <p className="dim combo-hint">
+          최종 = 100 + 캐릭터({fmtPts(char.stats)}) + 카트({fmtPts(kart.stats)})
+        </p>
       </div>
     </div>
   )

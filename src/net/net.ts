@@ -27,7 +27,7 @@ export interface PosMsg {
 
 export interface ItemMsg {
   a: string
-  kind: 'trap' | 'missile' | 'boxTaken' | 'trapHit' | 'missileHit' | 'lightning'
+  kind: 'banana' | 'bomb' | 'missile' | 'boxTaken' | 'bananaHit' | 'missileHit' | 'lightning'
   id?: string
   boxId?: number
   x?: number
@@ -160,6 +160,7 @@ class Net {
     courseId: string,
     totalMs: number,
     bestLapMs: number,
+    ghost?: { dt: number; samples: number[]; kart?: string; char?: string },
   ): Promise<{ updated: boolean; rank: number }> {
     const nickname = this.nickname || 'Racer'
     if (this.server) {
@@ -169,8 +170,11 @@ class Net {
         Math.round(bestLapMs),
         nickname,
         this.color,
+        ghost ?? null,
       ])
-      return { updated: !!res?.updated, rank: res?.rank ?? -1 }
+      const updated = !!res?.updated
+      if (updated && ghost) this.saveLocalGhost(courseId, totalMs, ghost)
+      return { updated, rank: res?.rank ?? -1 }
     }
     // offline: localStorage
     const list: LeaderboardEntry[] = JSON.parse(localStorage.getItem(LS_LB(courseId)) || '[]')
@@ -192,7 +196,47 @@ class Net {
     }
     const fresh: LeaderboardEntry[] = JSON.parse(localStorage.getItem(LS_LB(courseId)) || '[]')
     const rank = fresh.findIndex((e) => e.account === 'local') + 1
+    if (updated && ghost) this.saveLocalGhost(courseId, totalMs, ghost)
     return { updated, rank }
+  }
+
+  private saveLocalGhost(
+    courseId: string,
+    totalMs: number,
+    ghost: { dt: number; samples: number[]; kart?: string; char?: string },
+  ) {
+    try {
+      localStorage.setItem(
+        `v8kart_ghost_${courseId}`,
+        JSON.stringify({
+          ...ghost,
+          totalMs: Math.round(totalMs),
+          nickname: this.nickname || 'Racer',
+        }),
+      )
+    } catch {
+      // localStorage full — ghost is a nice-to-have
+    }
+  }
+
+  /** Ghost of the global #1 (online) or my own best (offline / no server ghost). */
+  async getTopGhost(courseId: string): Promise<any | null> {
+    if (this.server) {
+      try {
+        const res = await this.server.remoteFunction('getTopGhost', [courseId])
+        if (res?.ghost?.samples?.length) {
+          return { ...res.ghost, nickname: res.nickname ?? '1위' }
+        }
+      } catch (e) {
+        console.warn('[net] getTopGhost failed', e)
+      }
+    }
+    try {
+      const raw = localStorage.getItem(`v8kart_ghost_${courseId}`)
+      return raw ? JSON.parse(raw) : null
+    } catch {
+      return null
+    }
   }
 
   async getTopTimes(courseId: string): Promise<LeaderboardEntry[]> {

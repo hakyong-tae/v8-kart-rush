@@ -670,6 +670,66 @@ body {
   text-shadow: 0 1px 3px #000;
 }
 
+/* start-boost charge gauge (countdown) */
+.start-gauge {
+  position: absolute;
+  top: 56%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(340px, 60vw);
+  height: 22px;
+  border-radius: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  background: rgba(8, 12, 30, 0.6);
+  overflow: hidden;
+}
+
+.start-zone.good {
+  position: absolute;
+  left: 33%;
+  width: 54.5%;
+  top: 0;
+  bottom: 0;
+  background: rgba(77, 255, 136, 0.18);
+}
+
+.start-zone.danger {
+  position: absolute;
+  left: 87.5%;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(255, 77, 61, 0.3);
+}
+
+.start-fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: linear-gradient(90deg, #8a93c4, #cfd6ff);
+}
+
+.start-fill.good {
+  background: linear-gradient(90deg, #2fa84f, #4dff88);
+}
+
+.start-fill.danger {
+  background: linear-gradient(90deg, #ff8c5a, #ff4d3d);
+  animation: pulse 0.2s infinite alternate;
+}
+
+.start-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 800;
+  text-shadow: 0 1px 3px #000;
+}
+
 /* radial speed lines while boosting */
 .speedlines {
   position: absolute;

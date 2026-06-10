@@ -3,7 +3,7 @@ import { COURSES, getCourse } from './game/courses'
 import { KARTS, CHARACTERS, getKart } from './game/roster'
 import { Track } from './game/track'
 import { Assets } from './game/assets'
-import { Game, type HudSnapshot } from './game/Game'
+import { Game, type HudSnapshot, type GhostData, type Placement } from './game/Game'
 import { Hud } from './ui/Hud'
 import { ComboPreview } from './ui/ComboPreview'
 import { net, type NetStatus, type RoomSnapshot, type LeaderboardEntry } from './net/net'
@@ -14,8 +14,27 @@ type Screen =
   | { name: 'title' }
   | { name: 'select'; mode: 'time' | 'multi' }
   | { name: 'lobby'; courseId: string; roomId: string }
-  | { name: 'game'; mode: 'time' | 'multi'; raceMode: 'speed' | 'item'; courseId: string; startAt?: number; raceId?: number }
-  | { name: 'results'; mode: 'time' | 'multi'; courseId: string; totalMs: number; bestLapMs: number; raceId?: number; roomId?: string }
+  | {
+      name: 'game'
+      mode: 'time' | 'multi'
+      raceMode: 'speed' | 'item'
+      courseId: string
+      startAt?: number
+      raceId?: number
+      ghost?: GhostData | null
+      aiCount?: number
+    }
+  | {
+      name: 'results'
+      mode: 'time' | 'multi'
+      raceMode: 'speed' | 'item'
+      courseId: string
+      totalMs: number
+      bestLapMs: number
+      raceId?: number
+      placements?: Placement[]
+      ghost?: GhostData
+    }
 
 const assets = new Assets()
 let assetsLoaded = false
@@ -124,9 +143,9 @@ function TitleScreen({ netStatus, go }: { netStatus: NetStatus; go: (s: Screen) 
                 <b>{k.nameKo}</b>
                 <small>{k.tagline}</small>
                 <span className="stat-bars">
-                  <i style={{ width: `${(k.stats.speed - 0.9) * 500}%` }} title="속도" />
-                  <i style={{ width: `${(k.stats.accel - 0.9) * 500}%` }} title="가속" />
-                  <i style={{ width: `${(k.stats.grip - 0.9) * 500}%` }} title="드리프트" />
+                  <i style={{ width: `${((k.stats.speed + 15) / 40) * 100}%` }} title="속도" />
+                  <i style={{ width: `${((k.stats.accel + 15) / 40) * 100}%` }} title="가속" />
+                  <i style={{ width: `${((k.stats.grip + 15) / 40) * 100}%` }} title="드리프트" />
                 </span>
               </button>
             ))}
@@ -145,8 +164,8 @@ function TitleScreen({ netStatus, go }: { netStatus: NetStatus; go: (s: Screen) 
             go({ name: 'select', mode: 'time' })
           }}
         >
-          🏁 타임어택
-          <small>코스별 최속 글로벌 랭킹</small>
+          🏁 싱글 플레이
+          <small>스피드전 (1위 고스트 대결) · 아이템전 (AI 레이스)</small>
         </button>
         <button
           className="btn big"
@@ -160,7 +179,7 @@ function TitleScreen({ netStatus, go }: { netStatus: NetStatus; go: (s: Screen) 
           ⚔️ 멀티플레이
           <small>
             {netStatus === 'online'
-              ? '최대 8인 아이템 레이스'
+              ? '최대 8인 · 스피드전 / 아이템전'
               : netStatus === 'connecting'
                 ? '서버 연결 중...'
                 : '오프라인 (서버 미연결)'}
@@ -238,6 +257,7 @@ function SelectScreen({
   const [boards, setBoards] = useState<Record<string, LeaderboardEntry[]>>({})
   const [roomCode, setRoomCode] = useState('')
   const [joining, setJoining] = useState<string | null>(null)
+  const [raceMode, setRaceMode] = useState<'speed' | 'item'>('speed')
 
   useEffect(() => {
     let alive = true
@@ -255,7 +275,15 @@ function SelectScreen({
 
   const pick = async (courseId: string) => {
     if (mode === 'time') {
-      go({ name: 'game', mode: 'time', raceMode: 'speed', courseId })
+      if (raceMode === 'item') {
+        // single item race vs CPU karts
+        go({ name: 'game', mode: 'time', raceMode: 'item', courseId, aiCount: 3 })
+      } else {
+        // speed race: fetch the #1 ghost to race against
+        setJoining(courseId)
+        const ghost = await net.getTopGhost(courseId)
+        go({ name: 'game', mode: 'time', raceMode: 'speed', courseId, ghost })
+      }
       return
     }
     setJoining(courseId)
@@ -276,7 +304,7 @@ function SelectScreen({
     <div className="screen select-screen">
       <header className="row spread">
         <button className="btn small" onClick={() => go({ name: 'title' })}>← 뒤로</button>
-        <h2>{mode === 'time' ? '🏁 타임어택 — 코스 선택' : '⚔️ 멀티플레이 — 코스 선택'}</h2>
+        <h2>{mode === 'time' ? '🏁 싱글 — 코스 선택' : '⚔️ 멀티플레이 — 코스 선택'}</h2>
         {mode === 'multi' ? (
           <input
             className="room-code"
@@ -286,7 +314,20 @@ function SelectScreen({
             onChange={(e) => setRoomCode(e.target.value)}
           />
         ) : (
-          <span />
+          <div className="row gap">
+            <button
+              className={`btn small ${raceMode === 'speed' ? 'on' : ''}`}
+              onClick={() => setRaceMode('speed')}
+            >
+              ⚡ 스피드전 <small>(1위 고스트)</small>
+            </button>
+            <button
+              className={`btn small ${raceMode === 'item' ? 'on' : ''}`}
+              onClick={() => setRaceMode('item')}
+            >
+              🎁 아이템전 <small>(AI 3명)</small>
+            </button>
+          </div>
         )}
       </header>
 
@@ -308,7 +349,7 @@ function SelectScreen({
               {(boards[c.id] ?? []).length === 0 && <li className="dim">아직 기록 없음 — 1위에 도전!</li>}
             </ol>
             <button className="btn" disabled={joining !== null} onClick={() => pick(c.id)}>
-              {joining === c.id ? '입장 중...' : mode === 'time' ? '출발!' : '입장'}
+              {joining === c.id ? '준비 중...' : mode === 'time' ? '출발!' : '입장'}
             </button>
           </div>
         ))}
@@ -473,9 +514,11 @@ function GameScreen({
         mode: screen.mode,
         raceMode: screen.raceMode,
         startAt: screen.startAt,
+        ghost: screen.ghost,
+        aiCount: screen.aiCount,
         players: screen.mode === 'multi' ? playersCacheRef.players : undefined,
         onSnapshot: setSnap,
-        onFinish: (totalMs, bestLapMs) => {
+        onFinish: (totalMs, bestLapMs, extra) => {
           if (finishedRef.current) return
           finishedRef.current = true
           if (screen.mode === 'multi') net.finishRace(totalMs, bestLapMs)
@@ -484,10 +527,13 @@ function GameScreen({
             go({
               name: 'results',
               mode: screen.mode,
+              raceMode: screen.raceMode,
               courseId: screen.courseId,
               totalMs,
               bestLapMs,
               raceId: screen.raceId,
+              placements: extra.placements,
+              ghost: extra.ghost,
             })
           }, 1800)
         },
@@ -556,12 +602,21 @@ function ResultsScreen({
   const [roomSnap, setRoomSnap] = useState<RoomSnapshot | null>(null)
   const submittedRef = useRef(false)
 
+  // single item race (vs AI): placements only, never submitted to the leaderboard
+  const isAiRace = screen.mode === 'time' && screen.raceMode === 'item'
+
   useEffect(() => {
+    if (isAiRace) return
     if (screen.mode === 'time') {
       if (submittedRef.current) return
       submittedRef.current = true
       ;(async () => {
-        const res = await net.submitTime(screen.courseId, screen.totalMs, screen.bestLapMs)
+        const res = await net.submitTime(
+          screen.courseId,
+          screen.totalMs,
+          screen.bestLapMs,
+          screen.ghost,
+        )
         setSubmitResult(res)
         setBoard(await net.getTopTimes(screen.courseId))
       })()
@@ -593,7 +648,13 @@ function ResultsScreen({
       <div className="card result-card">
         <p className="big-time">{fmtTime(screen.totalMs)}</p>
         <p className="dim">베스트 랩 {fmtTime(screen.bestLapMs)}</p>
-        {screen.mode === 'time' && submitResult && (
+        {isAiRace && screen.placements && (
+          <p className="accent">
+            {screen.placements.findIndex((p) => p.isPlayer) + 1}위 /{' '}
+            {screen.placements.length}명
+          </p>
+        )}
+        {!isAiRace && screen.mode === 'time' && submitResult && (
           <p className={submitResult.updated ? 'accent' : 'dim'}>
             {submitResult.updated
               ? `🎉 신기록! 현재 글로벌 ${submitResult.rank}위`
@@ -602,7 +663,22 @@ function ResultsScreen({
         )}
       </div>
 
-      {screen.mode === 'time' ? (
+      {isAiRace ? (
+        <div className="card board">
+          <h3>레이스 순위</h3>
+          <ol>
+            {(screen.placements ?? []).map((p, i) => (
+              <li key={i} className={p.isPlayer ? 'me' : ''}>
+                <span className="rank">{i + 1}</span>
+                <span className="color-dot small" style={{ background: getKart(p.color).ui }} />
+                {p.name}
+                {p.isPlayer && ' (나)'}
+                <span className="t">{p.totalMs !== null ? fmtTime(p.totalMs) : '주행 중'}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ) : screen.mode === 'time' ? (
         <div className="card board">
           <h3>🌍 {course.nameKo} 최속 랭킹</h3>
           <ol>
@@ -647,9 +723,14 @@ function ResultsScreen({
           <>
             <button
               className="btn primary"
-              onClick={() =>
-                go({ name: 'game', mode: 'time', raceMode: 'speed', courseId: screen.courseId })
-              }
+              onClick={async () => {
+                if (isAiRace) {
+                  go({ name: 'game', mode: 'time', raceMode: 'item', courseId: screen.courseId, aiCount: 3 })
+                } else {
+                  const ghost = await net.getTopGhost(screen.courseId)
+                  go({ name: 'game', mode: 'time', raceMode: 'speed', courseId: screen.courseId, ghost })
+                }
+              }}
             >
               🔄 다시 도전
             </button>

@@ -140,7 +140,7 @@ class Server {
     return 'times_' + courseId
   }
 
-  async submitTime(courseId, totalMs, bestLapMs, nickname, color) {
+  async submitTime(courseId, totalMs, bestLapMs, nickname, color, ghost) {
     const col = this.collectionFor(courseId)
     if (
       typeof totalMs !== 'number' ||
@@ -177,8 +177,55 @@ class Server {
       bestLapMs: Math.round(bestLapMs),
       createdAt: Date.now(),
     })
+
+    // store the replay ghost for this personal best (used by '1위 고스트' in time attack)
+    if (
+      ghost &&
+      Array.isArray(ghost.samples) &&
+      ghost.samples.length >= 3 &&
+      ghost.samples.length <= 12000 &&
+      typeof ghost.dt === 'number' &&
+      ghost.dt >= 50 &&
+      ghost.dt <= 500
+    ) {
+      const gcol = 'ghosts_' + courseId
+      const oldGhosts = await $global.getCollectionItems(gcol, {
+        filters: [{ field: 'account', operator: '==', value: $sender.account }],
+      })
+      for (const g of oldGhosts) {
+        await $global.deleteCollectionItem(gcol, g.__id)
+      }
+      await $global.addCollectionItem(gcol, {
+        account: $sender.account,
+        dt: Math.round(ghost.dt),
+        samples: ghost.samples.map(Number),
+        kart: String(ghost.kart || 'red').slice(0, 12),
+        char: String(ghost.char || 'moka').slice(0, 12),
+        totalMs: Math.round(totalMs),
+        createdAt: Date.now(),
+      })
+    }
+
     const rank = await this.rankOf(col, totalMs)
     return { updated: true, rank: rank, bestMs: Math.round(totalMs) }
+  }
+
+  // ghost of the current #1 record holder for the course
+  async getTopGhost(courseId) {
+    const col = this.collectionFor(courseId)
+    const top = await $global.getCollectionItems(col, {
+      orderBy: [{ field: 'totalMs', direction: 'asc' }],
+      limit: 1,
+    })
+    if (!top || top.length === 0) return { ghost: null }
+    const ghosts = await $global.getCollectionItems('ghosts_' + courseId, {
+      filters: [{ field: 'account', operator: '==', value: top[0].account }],
+    })
+    return {
+      nickname: top[0].nickname,
+      totalMs: top[0].totalMs,
+      ghost: ghosts.length > 0 ? ghosts[0] : null,
+    }
   }
 
   async rankOf(col, totalMs) {

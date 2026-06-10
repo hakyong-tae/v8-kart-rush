@@ -5,7 +5,8 @@ import { fmtTime } from '../util'
 const ITEM_ICON: Record<string, string> = {
   boost: '🚀',
   missile: '🎯',
-  trap: '🟣',
+  banana: '🍌',
+  bomb: '💣',
   shield: '🛡️',
   lightning: '⚡',
 }
@@ -138,7 +139,25 @@ export function Hud({
 
       {/* center overlays */}
       {snap.phase === 'countdown' && (
-        <div className="hud-center countdown">{cd > 3 ? '' : cd > 0 ? cd : 'GO!'}</div>
+        <>
+          <div className="hud-center countdown">{cd > 3 ? '' : cd > 0 ? cd : 'GO!'}</div>
+          {/* start-boost charge: hold ↑ — green zone = boost, red = engine blows */}
+          <div className="start-gauge">
+            <div className="start-zone good" />
+            <div className="start-zone danger" />
+            <div
+              className={`start-fill ${snap.startCharge >= 0.92 ? 'danger' : snap.startCharge >= 0.35 ? 'good' : ''}`}
+              style={{ width: `${Math.min(100, (snap.startCharge / 1.05) * 100)}%` }}
+            />
+            <span className="start-label">
+              {snap.startCharge >= 0.92
+                ? '⚠️ 과충전!'
+                : snap.startCharge >= 0.35
+                  ? '스타트 부스터 🔥'
+                  : '↑ 길게 눌러 기 모으기'}
+            </span>
+          </div>
+        </>
       )}
       {snap.phase === 'racing' && snap.countdown <= 0 && snap.totalMs < 1200 && (
         <div className="hud-center countdown go">GO!</div>
