@@ -1,0 +1,114 @@
+# V8 Kart Rush — 구조 분석 노트
+
+마리오카트 스타일 3D 아케이드 카트 레이서. **모든 코드 직접 구현**, 에셋은 CC0(Kenney Racing Kit)만 사용 — 저작권 이슈 없음, Verse8 업로드 가능.
+
+## 핵심 기능
+
+- **타임어택**: 솔로 주행, 3랩 합계 기록이 **코스별 글로벌 리더보드**에 등록 (낮을수록 상위, 1인 1기록)
+- **멀티플레이**: 룸 기반 최대 8인, 실시간 위치 동기화, 아이템전 (부스트/미사일/트랩)
+- **드리프트 & 미니터보**: Shift/Space 드리프트 → 차징 1단(블루)/2단(오렌지) → 해제 시 부스트
+- **부스트 패드**, 아이템 박스, 잔디 감속, 역주행 경고, R 리셋
+- **오프라인 폴백**: 서버 미연결 시 타임어택 + localStorage 리더보드로 자동 전환
+
+## 파일 구조
+
+```
+v8-kart-rush/
+├── index.html              ← Vite 진입점
+├── vite.config.ts          ← port 3014
+├── server.js               ← Verse8 게임서버 (룸/릴레이/리더보드)
+├── public/models/*.glb     ← Kenney Racing Kit (CC0) 모델 18종 + 라이선스
+└── src/
+    ├── main.tsx / App.tsx  ← 화면 상태머신 (title→select→lobby→game→results)
+    ├── styles.css          ← 아케이드 UI 스타일
+    ├── util.ts             ← 시간 포맷 (m'ss.mmm)
+    ├── ui/Hud.tsx          ← 인게임 HUD (랩/타임/순위/아이템/미니맵/카운트다운)
+    ├── net/net.ts          ← GameServer 래퍼 + 오프라인 폴백 + 룸 프로토콜
+    └── game/
+        ├── Game.ts         ← 엔진 루프, 씬, 레이스 오케스트레이션, 넷코드 통합
+        ├── courses.ts      ← 코스 3종 정의 (제어점/부스트패드/아이템박스/테마)
+        ├── track.ts        ← CatmullRom 스플라인 → 도로 메시/체크포인트/연석/스타트라인
+        ├── kart.ts         ← 아케이드 카트 물리 (가속/드리프트/그립/스핀)
+        ├── items.ts        ← 아이템 박스/부스트/미사일/트랩
+        ├── assets.ts       ← GLB 로더 (bbox 정규화) + 트랙 데코 배치
+        ├── input.ts        ← 키보드/터치 입력
+        └── audio.ts        ← WebAudio 신디사이저 (엔진음/효과음, 에셋 0개)
+```
+
+## 아키텍처
+
+### 트랙 시스템 (track.ts)
+- 코스 = 2D 제어점 배열 → `THREE.CatmullRomCurve3` (closed) → 1000개 샘플 (pos/tangent/normal)
+- 도로/연석/센터라인 = 스플라인 양쪽 lateral offset으로 스트립 메시 생성 (vertex color)
+- **트랙 좌표계**: 카트마다 `trackIdx`(최근접 샘플, 직전 인덱스 주변 ±30 로컬 탐색 = O(1)) + lateral offset
+- **체크포인트**: 트랙을 8구간 분할, 순차 통과만 인정(`cpTotal` 단조 증가) → 코스컷 방지, 후진 시 롤백
+- 랩 = cpTotal이 8의 배수+1 도달 시 (스타트라인 재통과)
+
+### 카트 물리 (kart.ts)
+- 종방향: 포화 가속(`ACCEL*(1-v/max)`), 잔디 시 max 9.5/드래그 강화, 부스트 시 max 38
+- 조향: 속도 의존 회전율, **velDir(이동방향)이 heading(차체방향)을 grip 속도로 추적** → 드리프트 시 grip 8→2.2로 슬라이드
+- 미니터보: 드리프트 0.85s(1단)/1.7s(2단) 차징 → 해제 시 0.9s/1.6s 부스트
+- 트랙 밖 26유닛에서 소프트 월
+
+### 멀티플레이 (net.ts + server.js)
+- Verse8 `@agent8/gameserver`: `GameServer.getInstance()` 직접 사용 (React 훅 없이)
+- 룸: 공개방 `q-{courseId}`, 코드방 `r-{code}-{courseId}`; 방장 = `$users[0]`
+- 룸 상태 키를 **flat하게** (`p_{account}`, `fin_{account}`) → updateRoomState 얕은 병합에서 동시쓰기 충돌 방지
+- 위치 동기화: `remoteFunction('updatePos', ..., {throttle: 100})` → 서버 `$room.broadcastToRoom('pos')` 릴레이 (상태 저장 없음) → 수신측 110ms 버퍼 보간 + 1.35x 외삽
+- 레이스 시작: `startAt`(서버 epoch) 기준 동기 카운트다운, 클라이언트는 `now()` RTT/2로 시계 오프셋 보정
+- 아이템: 피해자 권한(victim authority) — 자기 카트 피격만 자기가 판정 후 브로드캐스트
+- **멀티 기록은 리더보드 미반영** (아이템전이라 불공정) — 타임어택만 등록
+
+### 리더보드 (server.js)
+- 코스별 글로벌 컬렉션 `times_{courseId}`, 1인 1엔트리 (갱신 시 기존 삭제)
+- `orderBy: [{field: 'totalMs', direction: 'asc'}]` — 3랩 합계 오름차순
+- 서버 검증: 코스 화이트리스트, 30초~30분 범위, bestLap ≤ total, 닉네임 1~15자
+
+## 실행 방법
+
+```bash
+export PATH="$HOME/.nvm/versions/node/v23.11.0/bin:$PATH"
+npm install
+npm run dev          # http://localhost:3014 (오프라인 모드)
+```
+
+### Verse8 서버 배포 (멀티플레이/글로벌 리더보드 활성화)
+
+```bash
+npx -y @agent8/deploy    # Verse8 계정 인증 필요
+# → .env에 VITE_AGENT8_VERSE 생성됨 → npm run dev 재시작하면 온라인 모드
+```
+
+배포 전까지는 자동으로 오프라인 모드 (타임어택 + 로컬 기록)로 동작한다.
+
+## 조작
+
+| 키 | 동작 |
+|---|---|
+| ↑↓←→ / WASD | 가속·브레이크·조향 |
+| Shift / Space | 드리프트 (차징 후 해제 = 미니터보) |
+| E / Ctrl | 아이템 사용 (멀티만) |
+| R | 트랙 복귀 |
+
+## 코스
+
+| 코스 | 난이도 | 특징 |
+|---|---|---|
+| 써니 서킷 (sunny) | ★ | 완만한 순환, 입문용 |
+| 캐니언 트위스트 (canyon) | ★★ | S자 연속 + 사막 테마 |
+| 네온 나이트 (neon) | ★★★ | 좁은 도로(11), 테크니컬, 야간+가로등 |
+
+코스 추가 = `courses.ts`에 제어점/패드/테마만 추가하면 끝 (도로/체크포인트/미니맵/데코 자동 생성). 단, `server.js`의 `COURSE_IDS` 화이트리스트에도 추가 필요.
+
+## 에셋 라이선스
+
+- `public/models/` — Kenney Racing Kit 2.0, **CC0** (퍼블릭 도메인). `LICENSE-kenney-racing-kit.txt` 동봉
+- 사운드 — WebAudio 신디사이저로 런타임 합성 (에셋 파일 없음)
+- 닌텐도/마리오카트 에셋 일절 미사용 (상표·저작권 리스크 차단)
+
+## 알려진 한계 / 다음 단계
+
+- 클라이언트 권한 물리 → 치트 가능 (서버 검증은 sanity bound만). 정식 랭킹 운영 시 리플레이 검증 필요
+- 미드레이스 난입은 다음 판부터 참가 (로비 대기)
+- 모바일 터치 UI 미구현 (input.ts에 touch 훅은 있음)
+- 고스트(내 베스트 기록 따라 달리기), 캐릭터, 더 많은 아이템 등 확장 여지
