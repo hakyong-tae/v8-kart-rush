@@ -1,1 +1,0 @@
-{"root":["./src/app.tsx","./src/main.tsx","./src/util.ts","./src/game/game.ts","./src/game/assets.ts","./src/game/audio.ts","./src/game/courses.ts","./src/game/input.ts","./src/game/items.ts","./src/game/kart.ts","./src/game/track.ts","./src/net/net.ts","./src/ui/hud.tsx"],"version":"5.9.3"}

@@ -4,3 +4,4 @@ output/
 asset-src/
 .DS_Store
 .env
+*.tsbuildinfo
