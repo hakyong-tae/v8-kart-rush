@@ -61,7 +61,7 @@ export interface ItemCallbacks {
   onPickup: (actorId: string, boxId: number) => void
   onHitBanana: (actorId: string, id: string) => void
   onHitMissile: (actorId: string, id: string) => void
-  onBlast: (actorId: string) => void
+  onBlast: (actorId: string, bombId: string) => void
 }
 
 const BOX_RESPAWN_MS = 3500
@@ -159,7 +159,7 @@ export class ItemManager {
     this.missiles.delete(id)
   }
 
-  private explode(pos: THREE.Vector3, actors: ItemActor[], cb: ItemCallbacks) {
+  private explode(pos: THREE.Vector3, bombId: string, actors: ItemActor[], cb: ItemCallbacks) {
     const mesh = new THREE.Mesh(
       new THREE.SphereGeometry(1, 14, 10),
       new THREE.MeshBasicMaterial({ color: 0xff9a33, transparent: true, opacity: 0.85 }),
@@ -171,7 +171,7 @@ export class ItemManager {
       if (a.kart.spinT > 0) continue
       const dx = a.kart.pos.x - pos.x
       const dz = a.kart.pos.z - pos.z
-      if (dx * dx + dz * dz < BOMB_RADIUS * BOMB_RADIUS) cb.onBlast(a.id)
+      if (dx * dx + dz * dz < BOMB_RADIUS * BOMB_RADIUS) cb.onBlast(a.id, bombId)
     }
   }
 
@@ -221,7 +221,7 @@ export class ItemManager {
       if (bomb.fuse <= 0) {
         this.group.remove(bomb.mesh)
         this.bombs.delete(bomb.id)
-        this.explode(bomb.pos, actors, cb)
+        this.explode(bomb.pos, bomb.id, actors, cb)
       }
     }
 

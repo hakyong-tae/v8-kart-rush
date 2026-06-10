@@ -6,6 +6,18 @@ export class AudioEngine {
   private engineGain: GainNode | null = null
   private engineFilter: BiquadFilterNode | null = null
   muted = false
+  sfxVol = Number(localStorage.getItem('v8kart_sfxvol') ?? 0.8)
+  bgmVol = Number(localStorage.getItem('v8kart_bgmvol') ?? 0.7)
+
+  setSfxVol(v: number) {
+    this.sfxVol = Math.max(0, Math.min(1, v))
+    localStorage.setItem('v8kart_sfxvol', String(this.sfxVol))
+  }
+
+  setBgmVol(v: number) {
+    this.bgmVol = Math.max(0, Math.min(1, v))
+    localStorage.setItem('v8kart_bgmvol', String(this.bgmVol))
+  }
 
   ensure() {
     if (this.ctx) return
@@ -46,7 +58,7 @@ export class AudioEngine {
     const f = 55 + r * 165
     this.engineOsc.frequency.setTargetAtTime(f, this.ctx.currentTime, 0.05)
     this.engineOsc2!.frequency.setTargetAtTime(f * 1.5 + 3, this.ctx.currentTime, 0.05)
-    const vol = 0.018 + r * 0.05 + Math.abs(throttle) * 0.015
+    const vol = (0.018 + r * 0.05 + Math.abs(throttle) * 0.015) * this.sfxVol
     this.engineGain.gain.setTargetAtTime(this.muted ? 0 : vol, this.ctx.currentTime, 0.08)
     this.engineFilter!.frequency.setTargetAtTime(500 + r * 1800, this.ctx.currentTime, 0.1)
   }
@@ -56,15 +68,24 @@ export class AudioEngine {
       this.engineGain.gain.setTargetAtTime(0, this.ctx.currentTime, 0.1)
   }
 
-  private blip(freq: number, dur: number, type: OscillatorType = 'sine', vol = 0.12, slideTo?: number) {
+  private blip(
+    freq: number,
+    dur: number,
+    type: OscillatorType = 'sine',
+    vol = 0.12,
+    slideTo?: number,
+    channel: 'sfx' | 'bgm' = 'sfx',
+  ) {
     if (!this.ctx || this.muted) return
+    const mul = channel === 'bgm' ? this.bgmVol : this.sfxVol
+    if (mul <= 0.001) return
     const t = this.ctx.currentTime
     const o = this.ctx.createOscillator()
     const g = this.ctx.createGain()
     o.type = type
     o.frequency.setValueAtTime(freq, t)
     if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur)
-    g.gain.setValueAtTime(vol, t)
+    g.gain.setValueAtTime(vol * mul, t)
     g.gain.exponentialRampToValueAtTime(0.0001, t + dur)
     o.connect(g)
     g.connect(this.ctx.destination)
@@ -134,9 +155,10 @@ export class AudioEngine {
       }
       const s = this.musicStep % 32
       const n = lead[s]
-      if (n) this.blip(n, stepDur * 0.9, 'square', 0.035)
-      if (s % 2 === 0) this.blip(bassNotes[Math.floor(s / 4) % 8], stepDur * 1.6, 'triangle', 0.06)
-      if (s % 4 === 2) this.blip(8000, 0.03, 'square', 0.012) // hat-ish tick
+      if (n) this.blip(n, stepDur * 0.9, 'square', 0.035, undefined, 'bgm')
+      if (s % 2 === 0)
+        this.blip(bassNotes[Math.floor(s / 4) % 8], stepDur * 1.6, 'triangle', 0.06, undefined, 'bgm')
+      if (s % 4 === 2) this.blip(8000, 0.03, 'square', 0.012, undefined, 'bgm') // hat-ish tick
       this.musicStep++
     }, stepDur * 1000)
   }

@@ -9,9 +9,12 @@ import { ComboPreview } from './ui/ComboPreview'
 import { net, type NetStatus, type RoomSnapshot, type LeaderboardEntry } from './net/net'
 import { audio } from './game/audio'
 import { fmtTime } from './util'
+import { useI18n } from './i18n'
+import { SettingsScreen } from './ui/SettingsScreen'
 
 type Screen =
   | { name: 'title' }
+  | { name: 'settings' }
   | { name: 'select'; mode: 'time' | 'multi' }
   | { name: 'lobby'; courseId: string; roomId: string }
   | {
@@ -40,6 +43,7 @@ const assets = new Assets()
 let assetsLoaded = false
 
 export default function App() {
+  const { t } = useI18n()
   const [screen, setScreen] = useState<Screen>({ name: 'title' })
   const [netStatus, setNetStatus] = useState<NetStatus>('connecting')
   const [ready, setReady] = useState(false)
@@ -58,13 +62,15 @@ export default function App() {
     return (
       <div className="screen center-col">
         <h1 className="logo">V8 KART RUSH</h1>
-        <p className="dim">에셋 로딩 중...</p>
+        <p className="dim">{t('loading')}</p>
       </div>
     )
 
   switch (screen.name) {
     case 'title':
       return <TitleScreen netStatus={netStatus} go={setScreen} />
+    case 'settings':
+      return <SettingsScreen onClose={() => setScreen({ name: 'title' })} />
     case 'select':
       return <SelectScreen mode={screen.mode} netStatus={netStatus} go={setScreen} />
     case 'lobby':
@@ -79,6 +85,7 @@ export default function App() {
 // ---------- Title ----------
 
 function TitleScreen({ netStatus, go }: { netStatus: NetStatus; go: (s: Screen) => void }) {
+  const { t, lang } = useI18n()
   const [nick, setNick] = useState(net.nickname)
   const [color, setColor] = useState(net.color)
   const [charId, setCharId] = useState(net.character)
@@ -94,11 +101,11 @@ function TitleScreen({ netStatus, go }: { netStatus: NetStatus; go: (s: Screen) 
       <h1 className="logo">
         V8 KART <span className="logo-accent">RUSH</span>
       </h1>
-      <p className="tagline">드리프트 · 부스터 · 아이템전 — 코스별 최속 랭킹에 도전하세요</p>
+      <p className="tagline">{t('tagline')}</p>
 
       <div className="card profile">
         <label className="field">
-          <span>닉네임</span>
+          <span>{t('nickname')}</span>
           <input
             value={nick}
             maxLength={15}
@@ -110,7 +117,7 @@ function TitleScreen({ netStatus, go }: { netStatus: NetStatus; go: (s: Screen) 
 
       <div className="pickers">
         <div className="card picker">
-          <h4>캐릭터</h4>
+          <h4>{t('character')}</h4>
           <div className="picker-row">
             {CHARACTERS.map((c) => (
               <button
@@ -124,14 +131,14 @@ function TitleScreen({ netStatus, go }: { netStatus: NetStatus; go: (s: Screen) 
                 >
                   {c.emoji}
                 </span>
-                <b>{c.nameKo}</b>
-                <small>{c.tagline}</small>
+                <b>{lang === 'ko' ? c.nameKo : c.name}</b>
+                <small>{lang === 'ko' ? c.tagline : c.taglineEn}</small>
               </button>
             ))}
           </div>
         </div>
         <div className="card picker">
-          <h4>카트</h4>
+          <h4>{t('kart')}</h4>
           <div className="picker-row">
             {KARTS.map((k) => (
               <button
@@ -140,8 +147,8 @@ function TitleScreen({ netStatus, go }: { netStatus: NetStatus; go: (s: Screen) 
                 onClick={() => setColor(k.id)}
               >
                 <span className="pick-face" style={{ background: k.ui }}>🏎️</span>
-                <b>{k.nameKo}</b>
-                <small>{k.tagline}</small>
+                <b>{lang === 'ko' ? k.nameKo : k.name}</b>
+                <small>{lang === 'ko' ? k.tagline : k.taglineEn}</small>
                 <span className="stat-bars">
                   <i style={{ width: `${((k.stats.speed + 15) / 40) * 100}%` }} title="속도" />
                   <i style={{ width: `${((k.stats.accel + 15) / 40) * 100}%` }} title="가속" />
@@ -164,8 +171,8 @@ function TitleScreen({ netStatus, go }: { netStatus: NetStatus; go: (s: Screen) 
             go({ name: 'select', mode: 'time' })
           }}
         >
-          🏁 싱글 플레이
-          <small>스피드전 (1위 고스트 대결) · 아이템전 (AI 레이스)</small>
+          {t('singlePlay')}
+          <small>{t('singleSub')}</small>
         </button>
         <button
           className="btn big"
@@ -176,19 +183,22 @@ function TitleScreen({ netStatus, go }: { netStatus: NetStatus; go: (s: Screen) 
             go({ name: 'select', mode: 'multi' })
           }}
         >
-          ⚔️ 멀티플레이
+          {t('multiPlay')}
           <small>
             {netStatus === 'online'
-              ? '최대 8인 · 스피드전 / 아이템전'
+              ? t('multiSubOnline')
               : netStatus === 'connecting'
-                ? '서버 연결 중...'
-                : '오프라인 (서버 미연결)'}
+                ? t('multiSubConnecting')
+                : t('multiSubOffline')}
           </small>
+        </button>
+        <button className="btn" onClick={() => go({ name: 'settings' })}>
+          {t('settings')}
         </button>
       </div>
 
       <p className="footer dim">
-        {netStatus === 'online' ? '🟢 Verse8 서버 연결됨' : netStatus === 'connecting' ? '🟡 연결 중' : '🔴 오프라인 모드 — 랭킹은 이 기기에만 저장됩니다'}
+        {netStatus === 'online' ? t('netOnline') : netStatus === 'connecting' ? t('netConnecting') : t('netOffline')}
       </p>
     </div>
   )
@@ -254,6 +264,7 @@ function SelectScreen({
   netStatus: NetStatus
   go: (s: Screen) => void
 }) {
+  const { t, lang } = useI18n()
   const [boards, setBoards] = useState<Record<string, LeaderboardEntry[]>>({})
   const [roomCode, setRoomCode] = useState('')
   const [joining, setJoining] = useState<string | null>(null)
@@ -295,7 +306,7 @@ function SelectScreen({
       go({ name: 'lobby', courseId, roomId })
     } catch (e) {
       console.error('join failed', e)
-      alert('방 입장에 실패했습니다. 다시 시도해 주세요.')
+      alert(t('joinFailed'))
       setJoining(null)
     }
   }
@@ -303,12 +314,12 @@ function SelectScreen({
   return (
     <div className="screen select-screen">
       <header className="row spread">
-        <button className="btn small" onClick={() => go({ name: 'title' })}>← 뒤로</button>
-        <h2>{mode === 'time' ? '🏁 싱글 — 코스 선택' : '⚔️ 멀티플레이 — 코스 선택'}</h2>
+        <button className="btn small" onClick={() => go({ name: 'title' })}>{t('back')}</button>
+        <h2>{mode === 'time' ? t('selectSingle') : t('selectMulti')}</h2>
         {mode === 'multi' ? (
           <input
             className="room-code"
-            placeholder="방 코드 (비우면 공개방)"
+            placeholder={t('roomCode')}
             value={roomCode}
             maxLength={12}
             onChange={(e) => setRoomCode(e.target.value)}
@@ -319,13 +330,13 @@ function SelectScreen({
               className={`btn small ${raceMode === 'speed' ? 'on' : ''}`}
               onClick={() => setRaceMode('speed')}
             >
-              ⚡ 스피드전 <small>(1위 고스트)</small>
+              {t('speedToggle')} <small>{t('speedToggleSub')}</small>
             </button>
             <button
               className={`btn small ${raceMode === 'item' ? 'on' : ''}`}
               onClick={() => setRaceMode('item')}
             >
-              🎁 아이템전 <small>(AI 3명)</small>
+              {t('itemToggle')} <small>{t('itemToggleSub')}</small>
             </button>
           </div>
         )}
@@ -336,9 +347,10 @@ function SelectScreen({
           <div key={c.id} className="card course-card">
             <CoursePreview courseId={c.id} stroke={c.theme.night ? '#7df' : '#fff'} />
             <h3>
-              {c.nameKo} <span className="dim">{c.name}</span>
+              {lang === 'ko' ? c.nameKo : c.name}{' '}
+              {lang === 'ko' && <span className="dim">{c.name}</span>}
             </h3>
-            <div className="stars">{'★'.repeat(c.difficulty)}{'☆'.repeat(3 - c.difficulty)} · {c.laps}랩</div>
+            <div className="stars">{'★'.repeat(c.difficulty)}{'☆'.repeat(3 - c.difficulty)} · {c.laps} {t('laps')}</div>
             <ol className="board-mini">
               {(boards[c.id] ?? []).slice(0, 3).map((e, i) => (
                 <li key={e.__id ?? i}>
@@ -346,16 +358,16 @@ function SelectScreen({
                   <span className="t">{fmtTime(e.totalMs)}</span>
                 </li>
               ))}
-              {(boards[c.id] ?? []).length === 0 && <li className="dim">아직 기록 없음 — 1위에 도전!</li>}
+              {(boards[c.id] ?? []).length === 0 && <li className="dim">{t('noRecord')}</li>}
             </ol>
             <button className="btn" disabled={joining !== null} onClick={() => pick(c.id)}>
-              {joining === c.id ? '준비 중...' : mode === 'time' ? '출발!' : '입장'}
+              {joining === c.id ? t('preparing') : mode === 'time' ? t('go') : t('enter')}
             </button>
           </div>
         ))}
       </div>
       {mode === 'time' && netStatus !== 'online' && (
-        <p className="dim center">오프라인 모드: 기록은 이 브라우저에만 저장됩니다.</p>
+        <p className="dim center">{t('offlineSelectNote')}</p>
       )}
     </div>
   )
@@ -372,6 +384,7 @@ function LobbyScreen({
   roomId: string
   go: (s: Screen) => void
 }) {
+  const { t, lang } = useI18n()
   const [snap, setSnap] = useState<RoomSnapshot | null>(null)
   const [myReady, setMyReady] = useState(false)
   const [raceMode, setRaceMode] = useState<'speed' | 'item'>('item')
@@ -414,10 +427,10 @@ function LobbyScreen({
 
   return (
     <div className="screen center-col">
-      <h2>🏟 대기실 — {course.nameKo}</h2>
+      <h2>{t('lobbyTitle')} — {lang === 'ko' ? course.nameKo : course.name}</h2>
       <p className="dim">
-        방: <code>{roomId}</code> · {playerList.length}/8명
-        {racing && ' · 레이스 진행 중 (끝나면 다음 판에 합류)'}
+        {t('room')}: <code>{roomId}</code> · {playerList.length}/8
+        {racing && <> · {t('racingInProgress')}</>}
       </p>
 
       <div className="card lobby-list">
@@ -429,19 +442,19 @@ function LobbyScreen({
             />
             <span className="nick">
               {p.info.nick}
-              {p.account === net.account && ' (나)'}
+              {p.account === net.account && <> {t('me')}</>}
             </span>
-            {p.isHost && <span className="badge">방장</span>}
+            {p.isHost && <span className="badge">{t('host')}</span>}
             <span className={`ready ${p.info.ready ? 'on' : ''}`}>
-              {p.info.ready ? 'READY' : '대기'}
+              {p.info.ready ? t('ready') : t('waiting')}
             </span>
           </div>
         ))}
-        {playerList.length === 0 && <p className="dim">접속 중...</p>}
+        {playerList.length === 0 && <p className="dim">{t('connectingDots')}</p>}
       </div>
 
       <div className="row gap">
-        <button className="btn" onClick={leave}>← 나가기</button>
+        <button className="btn" onClick={leave}>{t('leave')}</button>
         <button
           className={`btn ${myReady ? 'on' : ''}`}
           disabled={racing}
@@ -451,7 +464,7 @@ function LobbyScreen({
             net.setReady(v)
           }}
         >
-          {myReady ? '✓ READY' : 'READY'}
+          {myReady ? '✓ ' + t('ready') : t('ready')}
         </button>
         {isHost && (
           <>
@@ -460,7 +473,7 @@ function LobbyScreen({
               disabled={racing}
               onClick={() => setRaceMode(raceMode === 'item' ? 'speed' : 'item')}
             >
-              {raceMode === 'item' ? '🎁 아이템전' : '⚡ 스피드전'}
+              {raceMode === 'item' ? t('modeItem') : t('modeSpeed')}
             </button>
             <button
               className="btn primary"
@@ -469,17 +482,15 @@ function LobbyScreen({
                 net.startRace(courseId, raceMode)?.catch((e) => alert(String(e?.message ?? e)))
               }
             >
-              🏁 레이스 시작
+              {t('startRace')}
             </button>
           </>
         )}
       </div>
-      {!isHost && <p className="dim">방장이 시작하면 자동으로 출발합니다</p>}
+      {!isHost && <p className="dim">{t('hostStarts')}</p>}
       {isHost && (
         <p className="dim">
-          {raceMode === 'item'
-            ? '아이템전: 아이템 박스로 공격/방어'
-            : '스피드전: 드리프트로 게이지 충전 → 부스터'}
+          {raceMode === 'item' ? t('modeDescItem') : t('modeDescSpeed')}
         </p>
       )}
     </div>
@@ -495,6 +506,7 @@ function GameScreen({
   screen: Extract<Screen, { name: 'game' }>
   go: (s: Screen) => void
 }) {
+  const { t } = useI18n()
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const gameRef = useRef<Game | null>(null)
   const [snap, setSnap] = useState<HudSnapshot | null>(null)
@@ -572,12 +584,14 @@ function GameScreen({
           go({ name: 'title' })
         }}
       >
-        ✕ 나가기
+        {t('quit')}
       </button>
       {screen.mode === 'multi' && roomSnap && snap?.finished && (
         <div className="live-finish dim">
-          완주: {Object.values(roomSnap.finishes).filter((f) => f.raceId === screen.raceId).length}
-          /{roomSnap.users.length}
+          {t('finishedCount', {
+            a: Object.values(roomSnap.finishes).filter((f) => f.raceId === screen.raceId).length,
+            b: roomSnap.users.length,
+          })}
         </div>
       )}
     </div>
@@ -596,6 +610,7 @@ function ResultsScreen({
   screen: Extract<Screen, { name: 'results' }>
   go: (s: Screen) => void
 }) {
+  const { t, lang } = useI18n()
   const course = getCourse(screen.courseId)
   const [board, setBoard] = useState<LeaderboardEntry[]>([])
   const [submitResult, setSubmitResult] = useState<{ updated: boolean; rank: number } | null>(null)
@@ -644,43 +659,47 @@ function ResultsScreen({
 
   return (
     <div className="screen center-col">
-      <h2>🏆 결과 — {course.nameKo}</h2>
+      <h2>{t('results')} — {lang === 'ko' ? course.nameKo : course.name}</h2>
       <div className="card result-card">
         <p className="big-time">{fmtTime(screen.totalMs)}</p>
-        <p className="dim">베스트 랩 {fmtTime(screen.bestLapMs)}</p>
+        <p className="dim">{t('bestLap')} {fmtTime(screen.bestLapMs)}</p>
         {isAiRace && screen.placements && (
           <p className="accent">
-            {screen.placements.findIndex((p) => p.isPlayer) + 1}위 /{' '}
-            {screen.placements.length}명
+            {t('placeOf', {
+              r: screen.placements.findIndex((p) => p.isPlayer) + 1,
+              n: screen.placements.length,
+            })}
           </p>
         )}
         {!isAiRace && screen.mode === 'time' && submitResult && (
           <p className={submitResult.updated ? 'accent' : 'dim'}>
             {submitResult.updated
-              ? `🎉 신기록! 현재 글로벌 ${submitResult.rank}위`
-              : `기존 베스트 유지 (현재 ${submitResult.rank > 0 ? submitResult.rank + '위' : '기록 없음'})`}
+              ? t('newRecord', { r: submitResult.rank })
+              : submitResult.rank > 0
+                ? t('keepBest', { r: submitResult.rank })
+                : t('keepBestNoRank')}
           </p>
         )}
       </div>
 
       {isAiRace ? (
         <div className="card board">
-          <h3>레이스 순위</h3>
+          <h3>{t('raceResults')}</h3>
           <ol>
             {(screen.placements ?? []).map((p, i) => (
               <li key={i} className={p.isPlayer ? 'me' : ''}>
                 <span className="rank">{i + 1}</span>
                 <span className="color-dot small" style={{ background: getKart(p.color).ui }} />
                 {p.name}
-                {p.isPlayer && ' (나)'}
-                <span className="t">{p.totalMs !== null ? fmtTime(p.totalMs) : '주행 중'}</span>
+                {p.isPlayer && <> {t('me')}</>}
+                <span className="t">{p.totalMs !== null ? fmtTime(p.totalMs) : t('stillRacing')}</span>
               </li>
             ))}
           </ol>
         </div>
       ) : screen.mode === 'time' ? (
         <div className="card board">
-          <h3>🌍 {course.nameKo} 최속 랭킹</h3>
+          <h3>{t('ranking', { c: lang === 'ko' ? course.nameKo : course.name })}</h3>
           <ol>
             {board.map((e, i) => (
               <li key={e.__id ?? i} className={e.account === net.account ? 'me' : ''}>
@@ -693,12 +712,12 @@ function ResultsScreen({
                 <span className="t">{fmtTime(e.totalMs)}</span>
               </li>
             ))}
-            {board.length === 0 && <li className="dim">기록 없음</li>}
+            {board.length === 0 && <li className="dim">{t('noRecord')}</li>}
           </ol>
         </div>
       ) : (
         <div className="card board">
-          <h3>레이스 순위</h3>
+          <h3>{t('raceResults')}</h3>
           <ol>
             {multiResults.map((r, i) => (
               <li key={r.account} className={r.account === net.account ? 'me' : ''}>
@@ -713,7 +732,7 @@ function ResultsScreen({
             ))}
           </ol>
           <p className="dim">
-            완주 {multiResults.length}/{roomSnap?.users.length ?? 0}명
+            {t('finishedCount', { a: multiResults.length, b: roomSnap?.users.length ?? 0 })}
           </p>
         </div>
       )}
@@ -732,10 +751,10 @@ function ResultsScreen({
                 }
               }}
             >
-              🔄 다시 도전
+              {t('retry')}
             </button>
             <button className="btn" onClick={() => go({ name: 'select', mode: 'time' })}>
-              코스 선택
+              {t('courseSelect')}
             </button>
           </>
         ) : (
@@ -748,7 +767,7 @@ function ResultsScreen({
                   go({ name: 'lobby', courseId: screen.courseId, roomId: net.roomId ?? '' })
                 }}
               >
-                대기실로
+                {t('toLobby')}
               </button>
             )}
             {!isHost && (
@@ -756,7 +775,7 @@ function ResultsScreen({
                 className="btn"
                 onClick={() => go({ name: 'lobby', courseId: screen.courseId, roomId: net.roomId ?? '' })}
               >
-                대기실로
+                {t('toLobby')}
               </button>
             )}
             <button
@@ -766,7 +785,7 @@ function ResultsScreen({
                 go({ name: 'title' })
               }}
             >
-              나가기
+              {t('exit')}
             </button>
           </>
         )}

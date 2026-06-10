@@ -8,6 +8,7 @@ import { Input } from './input'
 import { ItemManager, rollItem, type ItemType, type ItemActor } from './items'
 import { audio } from './audio'
 import { net, type PosMsg, type ItemMsg, type PlayerInfo } from '../net/net'
+import { getLang } from '../i18n'
 
 // Car Kit vehicles natively face +Z (front wheels at +z) — same as our heading axis.
 const KART_MODEL_YAW = 0
@@ -42,9 +43,19 @@ export interface FinishExtra {
   ghost?: GhostData
 }
 
+export type MirrorReason = 'missile' | 'overtake' | 'hit'
+
+export interface StandingRow {
+  name: string
+  isMe: boolean
+  color: string
+}
+
 export interface HudSnapshot {
   phase: GamePhase
   countdown: number
+  standings: StandingRow[]
+  mirror: { active: boolean; reason: MirrorReason | ''; w: number; h: number; top: number; right: number }
   startCharge: number // 0..1.05 start-boost charge during countdown
   lap: number
   totalLaps: number
@@ -117,7 +128,10 @@ interface AiActor {
 }
 
 const PHYS_DT = 1 / 120
-const AI_NAMES = ['로키', '제트', '핀', '루나', '볼트', '치치']
+const AI_NAMES: Record<string, string[]> = {
+  ko: ['로키', '제트', '핀', '루나', '볼트', '치치'],
+  en: ['Rocky', 'Jet', 'Fin', 'Luna', 'Bolt', 'Chichi'],
+}
 
 function makeKartVisual(assets: Assets, kartId: string, charId: string): THREE.Group {
   const group = new THREE.Group()
@@ -198,6 +212,13 @@ export class Game {
     to: THREE.Vector3
     toHeading: number
   } | null = null
+
+  // rear-view mirror
+  private rearCam = new THREE.PerspectiveCamera(60, 16 / 9, 0.1, 500)
+  private mirrorUntil = 0
+  private mirrorReason: MirrorReason | '' = ''
+  private mirrorRect = { w: 0, h: 0, top: 158, right: 14 }
+  private aheadMap = new Map<string, boolean>()
 
   private raf = 0
   private last = 0
@@ -340,9 +361,10 @@ export class Game {
       const kart = new Kart(this.track, slotIdx, { ...stats })
       const group = makeKartVisual(this.assets, color, charId)
       this.scene.add(group)
+      const names = AI_NAMES[getLang()] ?? AI_NAMES.en
       this.ais.push({
         id: `ai${i}`,
-        name: AI_NAMES[i % AI_NAMES.length],
+        name: names[i % names.length],
         color,
         kart,
         group,
@@ -429,10 +451,19 @@ export class Game {
           this.items.spawnMissile(m.id, m.a, m.trackPos, m.lat ?? 0)
         break
       case 'bananaHit':
-        if (m.id) this.items.removeBanana(m.id)
+        if (m.id) {
+          this.items.removeBanana(m.id)
+          if (m.id.startsWith(this.myHazardPrefix + ':')) this.triggerMirror('hit')
+        }
         break
       case 'missileHit':
-        if (m.id) this.items.removeMissile(m.id)
+        if (m.id) {
+          this.items.removeMissile(m.id)
+          if (m.id.startsWith(this.myHazardPrefix + ':')) this.triggerMirror('hit')
+        }
+        break
+      case 'bombHit':
+        if (m.id && m.id.startsWith(this.myHazardPrefix + ':')) this.triggerMirror('hit')
         break
       case 'lightning':
         if (this.phase === 'racing' && !this.kart.finished) {
@@ -488,6 +519,7 @@ export class Game {
           net.sendItem({ kind: 'lightning' })
           // single-player: zap the AI field
           for (const ai of this.ais) this.zapActor(ai)
+          if (this.ais.length > 0 || this.remotes.size > 0) this.triggerMirror('hit')
           audio.hit()
         } else {
           // AI lightning hits player and other AIs
@@ -534,6 +566,19 @@ export class Game {
     }
   }
 
+  /** my hazard-id prefix — hazard ids are `${owner}:${n}` */
+  private get myHazardPrefix(): string {
+    return net.account || 'me'
+  }
+
+  private triggerMirror(reason: MirrorReason, durMs = 2500) {
+    const until = performance.now() + durMs
+    if (until > this.mirrorUntil || reason === 'missile') {
+      this.mirrorUntil = Math.max(this.mirrorUntil, until)
+      this.mirrorReason = reason
+    }
+  }
+
   private zapMe() {
     if (this.phase !== 'racing' || this.kart.finished) return
     if (this.shieldT > 0) {
@@ -550,8 +595,17 @@ export class Game {
     else ai.kart.applySpin()
   }
 
-  private hitActor(actorId: string, removeFn?: () => void, broadcastKind?: 'bananaHit' | 'missileHit', id?: string) {
+  private hitActor(
+    actorId: string,
+    removeFn?: () => void,
+    broadcastKind?: 'bananaHit' | 'missileHit' | 'bombHit',
+    id?: string,
+  ) {
     removeFn?.()
+    // my own attack landed on someone else → highlight mirror
+    if (actorId !== 'me' && id && id.startsWith(this.myHazardPrefix + ':')) {
+      this.triggerMirror('hit')
+    }
     if (actorId === 'me') {
       if (broadcastKind && id) net.sendItem({ kind: broadcastKind, id })
       if (this.shieldT > 0) {
@@ -782,8 +836,29 @@ export class Game {
           this.hitActor(actorId, () => this.items.removeBanana(id), 'bananaHit', id),
         onHitMissile: (actorId, id) =>
           this.hitActor(actorId, () => this.items.removeMissile(id), 'missileHit', id),
-        onBlast: (actorId) => this.hitActor(actorId),
+        onBlast: (actorId, bombId) => this.hitActor(actorId, undefined, 'bombHit', bombId),
       })
+    }
+
+    // mirror triggers: incoming missile from behind / being overtaken
+    if (this.phase === 'racing' && !this.kart.finished) {
+      for (const m of this.items.missiles.values()) {
+        if (m.owner === 'me' || m.owner === net.account) continue
+        const rel = (((this.kart.trackIdx - m.trackPos) % this.track.N) + this.track.N) % this.track.N
+        if (rel > 2 && rel < 180) this.triggerMirror('missile', 700)
+      }
+      const opponents: { id: string; prog: number }[] = [
+        ...this.ais.map((a) => ({ id: a.id, prog: a.kart.progress })),
+        ...[...this.remotes.values()]
+          .filter((r) => r.group.visible)
+          .map((r) => ({ id: r.account, prog: r.prog })),
+      ]
+      for (const o of opponents) {
+        const ahead = o.prog > this.kart.progress
+        const prev = this.aheadMap.get(o.id)
+        if (prev === false && ahead) this.triggerMirror('overtake')
+        this.aheadMap.set(o.id, ahead)
+      }
     }
 
     // remote karts
@@ -881,6 +956,32 @@ export class Game {
     this.updateCamera(dt)
     audio.setEngine(this.kart.speed, 27, this.input.state.throttle)
     this.renderer.render(this.scene, this.camera)
+
+    // rear-view mirror PIP (second render pass into a scissored viewport)
+    if (now < this.mirrorUntil && this.phase !== 'finished') {
+      const size = new THREE.Vector2()
+      this.renderer.getSize(size)
+      const mw = Math.min(340, Math.floor(size.x * 0.32))
+      const mh = Math.floor((mw * 9) / 16)
+      const right = 14
+      const top = 158
+      const mx = size.x - mw - right
+      const myGL = size.y - top - mh
+      const k = this.kart
+      const fwdX = Math.sin(k.heading)
+      const fwdZ = Math.cos(k.heading)
+      this.rearCam.aspect = mw / mh
+      this.rearCam.position.set(k.pos.x + fwdX * 1.2, k.y + 2.6, k.pos.z + fwdZ * 1.2)
+      this.rearCam.lookAt(k.pos.x - fwdX * 14, k.y + 0.6, k.pos.z - fwdZ * 14)
+      this.rearCam.updateProjectionMatrix()
+      this.renderer.setScissorTest(true)
+      this.renderer.setViewport(mx, myGL, mw, mh)
+      this.renderer.setScissor(mx, myGL, mw, mh)
+      this.renderer.render(this.scene, this.rearCam)
+      this.renderer.setScissorTest(false)
+      this.renderer.setViewport(0, 0, size.x, size.y)
+      this.mirrorRect = { w: mw, h: mh, top, right }
+    }
 
     this.snapAcc += dt
     if (this.snapAcc >= 1 / 15) {
@@ -1076,10 +1177,31 @@ export class Game {
     for (const ai of this.ais) {
       dots.push({ x: ai.kart.pos.x, z: ai.kart.pos.z, color: getKart(ai.color).ui })
     }
+    // live standings (all racers ordered by progress)
+    const rows: { name: string; isMe: boolean; color: string; prog: number }[] = [
+      { name: net.nickname || 'Racer', isMe: true, color: net.color, prog: k.progress },
+      ...this.ais.map((a) => ({ name: a.name, isMe: false, color: a.color, prog: a.kart.progress })),
+      ...[...this.remotes.values()]
+        .filter((r) => r.group.visible)
+        .map((r) => ({
+          name: this.opts.players?.[r.account]?.nick ?? r.account.slice(0, 6),
+          isMe: false,
+          color: r.color,
+          prog: r.prog,
+        })),
+    ]
+    rows.sort((a, b) => b.prog - a.prog)
+
     return {
       phase: this.phase,
       countdown: Math.max(0, (this.goTime - now) / 1000),
       startCharge: this.startCharge,
+      standings: rows.slice(0, 8).map(({ name, isMe, color }) => ({ name, isMe, color })),
+      mirror: {
+        active: now < this.mirrorUntil && this.phase !== 'finished',
+        reason: this.mirrorReason,
+        ...this.mirrorRect,
+      },
       lap: Math.min(this.course.laps, Math.max(1, k.lap + 1)),
       totalLaps: this.course.laps,
       lapTimes: [...this.lapTimes],

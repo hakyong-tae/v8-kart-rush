@@ -27,7 +27,7 @@ export interface PosMsg {
 
 export interface ItemMsg {
   a: string
-  kind: 'banana' | 'bomb' | 'missile' | 'boxTaken' | 'bananaHit' | 'missileHit' | 'lightning'
+  kind: 'banana' | 'bomb' | 'missile' | 'boxTaken' | 'bananaHit' | 'missileHit' | 'bombHit' | 'lightning'
   id?: string
   boxId?: number
   x?: number

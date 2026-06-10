@@ -1,6 +1,8 @@
 import { useEffect, useRef } from 'react'
 import type { HudSnapshot } from '../game/Game'
+import { getKart } from '../game/roster'
 import { fmtTime } from '../util'
+import { useI18n } from '../i18n'
 
 const ITEM_ICON: Record<string, string> = {
   boost: '🚀',
@@ -23,6 +25,7 @@ export function Hud({
   raceMode: 'speed' | 'item'
 }) {
   const mapRef = useRef<HTMLCanvasElement>(null)
+  const { t } = useI18n()
 
   useEffect(() => {
     const cv = mapRef.current
@@ -69,25 +72,54 @@ export function Hud({
   if (!snap) return null
 
   const cd = Math.ceil(snap.countdown)
+  const showStandings = snap.standings.length > 1
 
   return (
     <div className="hud">
-      {/* top-left: lap & times */}
+      {/* top-left: lap & times + standings */}
       <div className="hud-panel hud-topleft">
         <div className="hud-lap">
-          LAP <b>{snap.lap}</b>/{snap.totalLaps}
+          {t('lap')} <b>{snap.lap}</b>/{snap.totalLaps}
         </div>
         <div className="hud-time">⏱ {fmtTime(snap.totalMs)}</div>
         <div className="hud-time small">
-          현재 랩 {fmtTime(snap.currentLapMs)}
+          {t('currentLap')} {fmtTime(snap.currentLapMs)}
           {snap.lapTimes.length > 0 && (
-            <> · 베스트 {fmtTime(Math.min(...snap.lapTimes))}</>
+            <>
+              {' '}
+              · {t('best')} {fmtTime(Math.min(...snap.lapTimes))}
+            </>
           )}
         </div>
+
+        {showStandings && (
+          <div className="hud-standings">
+            <div className="hud-sub">{t('standings')}</div>
+            {snap.standings.map((s, i) => (
+              <div key={i} className={`standing-row ${s.isMe ? 'me' : ''}`}>
+                <em>{i + 1}</em>
+                <span className="color-dot small" style={{ background: getKart(s.color).ui }} />
+                <span className="standing-name">{s.name}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {raceMode === 'speed' && snap.lapTimes.length > 0 && (
+          <div className="hud-standings">
+            <div className="hud-sub">{t('lapTimes')}</div>
+            {snap.lapTimes.map((ms, i) => (
+              <div key={i} className="standing-row">
+                <em>L{i + 1}</em>
+                <span className="standing-name mono">{fmtTime(ms)}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
-      {/* top-right: rank (multi) */}
-      {mode === 'multi' && (
+      {/* top-right: rank (multi / AI race) */}
+      {snap.totalRacers > 1 && (
         <div className="hud-panel hud-topright">
           <span className="hud-rank">{snap.rank}</span>
           <span className="hud-rank-total">/{snap.totalRacers}</span>
@@ -106,8 +138,27 @@ export function Hud({
       )}
 
       {/* shield active badge */}
-      {snap.shieldT > 0 && (
-        <div className="hud-shield">🛡️ {snap.shieldT.toFixed(0)}s</div>
+      {snap.shieldT > 0 && <div className="hud-shield">🛡️ {snap.shieldT.toFixed(0)}s</div>}
+
+      {/* rear-view mirror frame (the scene itself is rendered by the game into this region) */}
+      {snap.mirror.active && (
+        <div
+          className={`mirror-frame ${snap.mirror.reason}`}
+          style={{
+            width: snap.mirror.w,
+            height: snap.mirror.h,
+            top: snap.mirror.top,
+            right: snap.mirror.right,
+          }}
+        >
+          <span className="mirror-label">
+            {snap.mirror.reason === 'missile'
+              ? t('mirrorMissile')
+              : snap.mirror.reason === 'overtake'
+                ? t('mirrorOvertake')
+                : t('mirrorHit')}
+          </span>
+        </div>
       )}
 
       {/* booster gauge (speed mode, KartRider-style) */}
@@ -115,7 +166,7 @@ export function Hud({
         <div className={`hud-gauge ${snap.boostGauge >= 1 ? 'full' : ''}`}>
           <div className="hud-gauge-fill" style={{ width: `${Math.round(snap.boostGauge * 100)}%` }} />
           <span className="hud-gauge-label">
-            {snap.boostGauge >= 1 ? '⚡ 부스터 준비! (E/Ctrl)' : 'BOOST'}
+            {snap.boostGauge >= 1 ? t('boosterReady') : t('boost')}
           </span>
         </div>
       )}
@@ -141,7 +192,6 @@ export function Hud({
       {snap.phase === 'countdown' && (
         <>
           <div className="hud-center countdown">{cd > 3 ? '' : cd > 0 ? cd : 'GO!'}</div>
-          {/* start-boost charge: hold ↑ — green zone = boost, red = engine blows */}
           <div className="start-gauge">
             <div className="start-zone good" />
             <div className="start-zone danger" />
@@ -151,10 +201,10 @@ export function Hud({
             />
             <span className="start-label">
               {snap.startCharge >= 0.92
-                ? '⚠️ 과충전!'
+                ? t('chargeOver')
                 : snap.startCharge >= 0.35
-                  ? '스타트 부스터 🔥'
-                  : '↑ 길게 눌러 기 모으기'}
+                  ? t('chargeGood')
+                  : t('chargeHint')}
             </span>
           </div>
         </>
@@ -162,13 +212,12 @@ export function Hud({
       {snap.phase === 'racing' && snap.countdown <= 0 && snap.totalMs < 1200 && (
         <div className="hud-center countdown go">GO!</div>
       )}
-      {snap.wrongWay && <div className="hud-center wrongway">⟲ 반대 방향!</div>}
-      {snap.rescuing && <div className="hud-center rescuing">☁️ 구름이가 구조 중...</div>}
+      {snap.wrongWay && <div className="hud-center wrongway">{t('wrongWay')}</div>}
+      {snap.rescuing && <div className="hud-center rescuing">{t('rescuing')}</div>}
       {snap.finished && <div className="hud-center finish">FINISH!</div>}
 
       <div className="hud-controls">
-        ↑↓←→ 주행 · Shift/Space 드리프트{' '}
-        {raceMode === 'speed' ? '(게이지 충전) · E/Ctrl 부스터' : '· E/Ctrl 아이템'} · R 리셋
+        {raceMode === 'speed' ? t('controlsSpeed') : t('controlsItem')}
       </div>
     </div>
   )

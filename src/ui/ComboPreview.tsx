@@ -2,13 +2,14 @@ import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
 import { Assets, makeRider } from '../game/assets'
 import { getCharacter, getKart, combinePoints } from '../game/roster'
+import { useI18n } from '../i18n'
 
-const STAT_LABELS: { key: 'speed' | 'accel' | 'grip' | 'gauge'; label: string }[] = [
-  { key: 'speed', label: '최고속도' },
-  { key: 'accel', label: '가속' },
-  { key: 'grip', label: '드리프트' },
-  { key: 'gauge', label: '게이지' },
-]
+const STAT_KEYS = [
+  { key: 'speed', label: 'statSpeed' },
+  { key: 'accel', label: 'statAccel' },
+  { key: 'grip', label: 'statGrip' },
+  { key: 'gauge', label: 'statGauge' },
+] as const
 
 // additive points land in ~-10..+24 — map onto a readable bar (0pt = center)
 function barWidth(points: number): string {
@@ -89,6 +90,7 @@ export function ComboPreview({
     group.add(rider)
   }, [assets, charId, kartId])
 
+  const { t, lang } = useI18n()
   const char = getCharacter(charId)
   const kart = getKart(kartId)
   const points = combinePoints(char, kart)
@@ -98,14 +100,15 @@ export function ComboPreview({
       <div className="combo-left">
         <canvas ref={canvasRef} className="combo-canvas" />
         <p className="combo-name">
-          <b>{char.nameKo}</b> × <b>{kart.nameKo}</b>
+          <b>{lang === 'ko' ? char.nameKo : char.name}</b> ×{' '}
+          <b>{lang === 'ko' ? kart.nameKo : kart.name}</b>
         </p>
       </div>
       <div className="combo-stats">
-        <h4>최종 스탯</h4>
-        {STAT_LABELS.map(({ key, label }) => (
+        <h4>{t('finalStats')}</h4>
+        {STAT_KEYS.map(({ key, label }) => (
           <div key={key} className="stat-row">
-            <span className="stat-label">{label}</span>
+            <span className="stat-label">{t(label)}</span>
             <span className="stat-track">
               <i style={{ width: barWidth(points[key]) }} />
               <em className="stat-base" />
@@ -116,7 +119,7 @@ export function ComboPreview({
           </div>
         ))}
         <p className="dim combo-hint">
-          최종 = 100 + 캐릭터({fmtPts(char.stats)}) + 카트({fmtPts(kart.stats)})
+          {t('statFormula', { c: fmtPts(char.stats), k: fmtPts(kart.stats) })}
         </p>
       </div>
     </div>

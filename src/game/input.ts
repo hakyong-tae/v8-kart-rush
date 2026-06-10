@@ -1,4 +1,6 @@
-// Keyboard + touch input. Arrows/WASD drive, Shift/Space drift, Ctrl/E uses item, R resets.
+// Keyboard + touch input with configurable bindings (see keymap.ts).
+import { keysFor, allBoundKeys } from './keymap'
+
 export interface InputState {
   throttle: number // -1..1
   steer: number // -1..1 (1 = left)
@@ -17,12 +19,9 @@ export class Input {
   private onKeyDown = (e: KeyboardEvent) => {
     if (e.repeat) return
     this.keys.add(e.code)
-    if (e.code === 'ControlLeft' || e.code === 'KeyE') this.state.useItem = true
-    if (e.code === 'KeyR') this.state.reset = true
-    if (
-      ['ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Space'].includes(e.code)
-    )
-      e.preventDefault()
+    if (keysFor('item').includes(e.code)) this.state.useItem = true
+    if (keysFor('reset').includes(e.code)) this.state.reset = true
+    if (allBoundKeys().has(e.code)) e.preventDefault()
   }
   private onKeyUp = (e: KeyboardEvent) => {
     this.keys.delete(e.code)
@@ -52,15 +51,18 @@ export class Input {
     return v
   }
 
+  private down(action: 'accel' | 'brake' | 'left' | 'right' | 'drift'): boolean {
+    return keysFor(action).some((c) => this.keys.has(c))
+  }
+
   update() {
-    const k = this.keys
     let throttle = 0
     let steer = 0
-    if (k.has('ArrowUp') || k.has('KeyW')) throttle += 1
-    if (k.has('ArrowDown') || k.has('KeyS')) throttle -= 1
-    if (k.has('ArrowLeft') || k.has('KeyA')) steer += 1
-    if (k.has('ArrowRight') || k.has('KeyD')) steer -= 1
-    const drift = k.has('ShiftLeft') || k.has('ShiftRight') || k.has('Space')
+    if (this.down('accel')) throttle += 1
+    if (this.down('brake')) throttle -= 1
+    if (this.down('left')) steer += 1
+    if (this.down('right')) steer -= 1
+    const drift = this.down('drift')
 
     if (this.touch.active) {
       throttle = this.touch.throttle
