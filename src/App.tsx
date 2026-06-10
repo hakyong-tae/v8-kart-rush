@@ -132,7 +132,6 @@ function TitleScreen({ netStatus, go }: { netStatus: NetStatus; go: (s: Screen) 
                   {c.emoji}
                 </span>
                 <b>{lang === 'ko' ? c.nameKo : c.name}</b>
-                <small>{lang === 'ko' ? c.tagline : c.taglineEn}</small>
               </button>
             ))}
           </div>
@@ -148,12 +147,6 @@ function TitleScreen({ netStatus, go }: { netStatus: NetStatus; go: (s: Screen) 
               >
                 <span className="pick-face" style={{ background: k.ui }}>🏎️</span>
                 <b>{lang === 'ko' ? k.nameKo : k.name}</b>
-                <small>{lang === 'ko' ? k.tagline : k.taglineEn}</small>
-                <span className="stat-bars">
-                  <i style={{ width: `${((k.stats.speed + 15) / 40) * 100}%` }} title="속도" />
-                  <i style={{ width: `${((k.stats.accel + 15) / 40) * 100}%` }} title="가속" />
-                  <i style={{ width: `${((k.stats.grip + 15) / 40) * 100}%` }} title="드리프트" />
-                </span>
               </button>
             ))}
           </div>

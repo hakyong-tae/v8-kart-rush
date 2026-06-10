@@ -16,10 +16,6 @@ function barWidth(points: number): string {
   return `${Math.round(THREE.MathUtils.clamp(((points + 15) / 40) * 100, 8, 100))}%`
 }
 
-function fmtPts(s: { speed: number; accel: number; grip: number; gauge: number }): string {
-  const sum = s.speed + s.accel + s.grip + s.gauge
-  return sum > 0 ? `+${sum}` : `${sum}`
-}
 
 export function ComboPreview({
   assets,
@@ -118,9 +114,6 @@ export function ComboPreview({
             </span>
           </div>
         ))}
-        <p className="dim combo-hint">
-          {t('statFormula', { c: fmtPts(char.stats), k: fmtPts(kart.stats) })}
-        </p>
       </div>
     </div>
   )
