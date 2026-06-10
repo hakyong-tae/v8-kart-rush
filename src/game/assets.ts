@@ -217,6 +217,55 @@ export function makeRider(char: CharacterDef): THREE.Group {
   return g
 }
 
+// The cloud rescuer ("구름이") — fishes fallen karts out of pits, Lakitu-style.
+export function makeRescuer(): THREE.Group {
+  const g = new THREE.Group()
+  const cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff })
+  for (const [x, z, r] of [
+    [-0.5, 0, 0.45],
+    [0.45, 0.1, 0.5],
+    [0, -0.15, 0.55],
+  ] as const) {
+    const puff = new THREE.Mesh(new THREE.SphereGeometry(r, 9, 7), cloudMat)
+    puff.position.set(x, 0, z)
+    puff.scale.y = 0.7
+    g.add(puff)
+  }
+  // tiny pilot
+  const suit = new THREE.MeshLambertMaterial({ color: 0xffe14d })
+  const skin = new THREE.MeshLambertMaterial({ color: 0xffd9b3 })
+  const body = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 7), suit)
+  body.position.set(0, 0.4, 0)
+  g.add(body)
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 10, 8), skin)
+  head.position.set(0, 0.78, 0)
+  g.add(head)
+  const dark = new THREE.MeshBasicMaterial({ color: 0x26233a })
+  for (const sx of [-0.08, 0.08]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.03, 5, 5), dark)
+    eye.position.set(sx, 0.8, 0.21)
+    g.add(eye)
+  }
+  // fishing rod
+  const rod = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.025, 0.035, 1.6, 5),
+    new THREE.MeshLambertMaterial({ color: 0x9c6b3f }),
+  )
+  rod.position.set(0.45, 0.6, 0.5)
+  rod.rotation.set(0.9, 0, -0.4)
+  g.add(rod)
+  // fishing line hanging down to the kart
+  const line = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.012, 0.012, 1, 4),
+    new THREE.MeshBasicMaterial({ color: 0xf2f2f2 }),
+  )
+  line.name = 'line'
+  line.position.set(0.85, -1.4, 1.05)
+  line.scale.y = 3.2
+  g.add(line)
+  return g
+}
+
 // Beach decorations (procedural — Kenney kit has no palms)
 export function makePalm(rand: () => number): THREE.Group {
   const g = new THREE.Group()
@@ -354,9 +403,9 @@ export function buildDecorations(track: Track, assets: Assets): THREE.Group {
         const buoy = makeBuoy()
         const s = track.sampleAt(idx)
         buoy.position.set(
-          s.pos.x + s.nor.x * side * (wall + 1.2),
-          0,
-          s.pos.z + s.nor.z * side * (wall + 1.2),
+          s.pos.x + s.nor.x * side * (wall + 1.6),
+          -0.9, // bobbing in the water just past the sand edge
+          s.pos.z + s.nor.z * side * (wall + 1.6),
         )
         group.add(buoy)
       }

@@ -35,7 +35,9 @@ export class Kart {
   heading = 0 // facing angle (rad), atan2(x, z)
   velDir = 0 // direction of travel; lags heading while drifting
   speed = 0
-  vertVel = 0
+  y = 0 // height above the road (jumps / falls)
+  vy = 0
+  airborne = false
   hop = 0 // visual hop height
 
   trackIdx = 0
@@ -104,10 +106,23 @@ export class Kart {
     this.spinT = 0
     this.driftDir = 0
     this.driftCharge = 0
+    this.y = 0
+    this.vy = 0
+    this.airborne = false
   }
 
   applyBoost(sec: number) {
     this.boostT = Math.max(this.boostT, sec)
+  }
+
+  /** Jump ramp launch. Cancels any drift (you can't slide in the air). */
+  applyJump(v = 10.5) {
+    if (this.airborne) return
+    this.airborne = true
+    this.vy = v
+    this.y = Math.max(this.y, 0.01)
+    this.driftDir = 0
+    this.driftCharge = 0
   }
 
   /** KartRider manual booster: consumes a full gauge. Returns true if fired. */
@@ -133,8 +148,24 @@ export class Kart {
     input: InputState,
     canDrive: boolean,
     gaugeEnabled: boolean,
-  ): { lapCrossed: boolean; driftReleased: DriftTier; driftStarted: boolean; gaugeFilled: boolean; wallBumped: boolean } {
-    const ev = { lapCrossed: false, driftReleased: 0 as DriftTier, driftStarted: false, gaugeFilled: false, wallBumped: false }
+  ): {
+    lapCrossed: boolean
+    driftReleased: DriftTier
+    driftStarted: boolean
+    gaugeFilled: boolean
+    wallBumped: boolean
+    fell: boolean
+    landed: boolean
+  } {
+    const ev = {
+      lapCrossed: false,
+      driftReleased: 0 as DriftTier,
+      driftStarted: false,
+      gaugeFilled: false,
+      wallBumped: false,
+      fell: false,
+      landed: false,
+    }
 
     if (this.wallHit > 0) this.wallHit -= dt
     if (this.spinT > 0) {
@@ -175,11 +206,11 @@ export class Kart {
     } else {
       this.speed *= Math.exp(-COAST_DRAG * dt)
     }
-    if (this.offroad && !boosting) this.speed *= Math.exp(-course.offroadDrag * dt)
+    if (this.offroad && !boosting && this.y < 0.2) this.speed *= Math.exp(-course.offroadDrag * dt)
 
-    // drift state machine
+    // drift state machine (no drifting mid-air)
     if (this.driftDir === 0) {
-      if (driftBtn && Math.abs(steer) > 0.3 && this.speed > DRIFT_MIN_SPEED) {
+      if (!this.airborne && driftBtn && Math.abs(steer) > 0.3 && this.speed > DRIFT_MIN_SPEED) {
         this.driftDir = steer > 0 ? 1 : -1
         this.driftCharge = 0
         this.hop = 1
@@ -222,6 +253,7 @@ export class Kart {
       turn = steer * TURN_RATE * speedFactor
     }
     if (spinning) turn = 0
+    if (this.airborne) turn *= 0.35 // limited mid-air control
     this.heading += turn * fwd * dt
 
     // velocity direction chases heading (low grip while drifting => slide)
@@ -243,11 +275,34 @@ export class Kart {
     this.pos.x += Math.sin(this.velDir) * this.speed * dt
     this.pos.z += Math.cos(this.velDir) * this.speed * dt
 
-    // guardrail walls (KartRider tracks are walled)
+    // vertical: jumps, and falling into pits (cliffs / water)
     this.trackIdx = this.track.nearestIndex(this.pos, this.trackIdx)
     const lat2 = this.track.lateral(this.pos, this.trackIdx)
+    const overPit = this.track.isPit(this.trackIdx, lat2)
+    if (!this.airborne && overPit && this.y <= 0.01) {
+      this.airborne = true // drove off an edge — start falling
+      this.vy = Math.min(this.vy, 0)
+    }
+    if (this.airborne) {
+      this.vy -= 26 * dt
+      this.y += this.vy * dt
+      if (this.y <= 0) {
+        if (!overPit) {
+          this.y = 0
+          this.vy = 0
+          this.airborne = false
+          ev.landed = true
+        } else if (this.y < -7) {
+          ev.fell = true // splash / into the void — call the rescuer
+        }
+      }
+    }
+
+    // guardrail walls (KartRider tracks are walled) — no wall along pit edges,
+    // and open water maps have no wall at all (the sea IS the boundary)
     const wallD = this.track.wallDist
-    if (Math.abs(lat2) > wallD) {
+    const openWater = course.open && course.ocean
+    if (Math.abs(lat2) > wallD && !overPit && !openWater) {
       const s = this.track.sampleAt(this.trackIdx)
       const side = Math.sign(lat2)
       // clamp back inside

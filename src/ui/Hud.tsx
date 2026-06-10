@@ -163,6 +163,7 @@ export function Hud({
         <div className="hud-center countdown go">GO!</div>
       )}
       {snap.wrongWay && <div className="hud-center wrongway">⟲ 반대 방향!</div>}
+      {snap.rescuing && <div className="hud-center rescuing">☁️ 구름이가 구조 중...</div>}
       {snap.finished && <div className="hud-center finish">FINISH!</div>}
 
       <div className="hud-controls">

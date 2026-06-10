@@ -797,6 +797,11 @@ body {
   animation: pulse 0.4s infinite alternate;
 }
 
+.hud-center.rescuing {
+  font-size: 34px;
+  color: #9fe8ff;
+}
+
 .hud-center.finish {
   color: #ffe14d;
   animation: pop 0.5s ease-out;

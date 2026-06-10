@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { getCourse, type CourseDef } from './courses'
 import { getKart, getCharacter, combineStats, CHARACTERS, KARTS } from './roster'
 import { Track, buildTrackMeshes, rng } from './track'
-import { Assets, buildDecorations, makeRider, makeClouds } from './assets'
+import { Assets, buildDecorations, makeRider, makeClouds, makeRescuer } from './assets'
 import { Kart, resolveKartCollision } from './kart'
 import { Input } from './input'
 import { ItemManager, rollItem, type ItemType, type ItemActor } from './items'
@@ -61,6 +61,7 @@ export interface HudSnapshot {
   boostGauge: number
   boosterActive: boolean
   wrongWay: boolean
+  rescuing: boolean
   finished: boolean
   finalTotalMs: number
   finalBestLapMs: number
@@ -186,6 +187,17 @@ export class Game {
   private ghostRec: number[] = []
   private ghostRecAcc = 0
 
+  // cloud rescuer (구름이)
+  private rescuer: THREE.Group
+  private rescue: {
+    t: number
+    dur: number
+    from: THREE.Vector3
+    fromY: number
+    to: THREE.Vector3
+    toHeading: number
+  } | null = null
+
   private raf = 0
   private last = 0
   private acc = 0
@@ -262,6 +274,11 @@ export class Game {
     // items only in item mode
     this.items = new ItemManager(this.track, opts.raceMode === 'item')
     this.scene.add(this.items.group)
+
+    // cloud rescuer (hidden until needed)
+    this.rescuer = makeRescuer()
+    this.rescuer.visible = false
+    this.scene.add(this.rescuer)
 
     // single-player item race: CPU karts
     if (opts.mode === 'time' && opts.raceMode === 'item') {
@@ -647,23 +664,26 @@ export class Game {
     this.acc += dt
     while (this.acc >= PHYS_DT) {
       this.acc -= PHYS_DT
-      const ev = this.kart.step(
-        PHYS_DT,
-        this.input.state,
-        canDrive && !this.kart.finished,
-        this.opts.raceMode === 'speed',
-      )
-      if (ev.driftStarted) audio.driftTick(0)
-      if (ev.driftReleased === 1 || ev.driftReleased === 2) audio.boost()
-      if (ev.gaugeFilled) audio.gaugeFull()
-      if (ev.wallBumped) audio.wallBump()
-      if (ev.lapCrossed && this.phase === 'racing' && !this.kart.finished) {
-        if (this.kart.cpTotal > 1) {
-          const lapMs = now - this.lapStart
-          this.lapTimes.push(lapMs)
-          this.lapStart = now
-          if (this.kart.lap >= this.course.laps) this.finishLocal(now)
-          else audio.lap()
+      if (!this.rescue) {
+        const ev = this.kart.step(
+          PHYS_DT,
+          this.input.state,
+          canDrive && !this.kart.finished,
+          this.opts.raceMode === 'speed',
+        )
+        if (ev.driftStarted) audio.driftTick(0)
+        if (ev.driftReleased === 1 || ev.driftReleased === 2) audio.boost()
+        if (ev.gaugeFilled) audio.gaugeFull()
+        if (ev.wallBumped) audio.wallBump()
+        if (ev.fell) this.startRescue()
+        if (ev.lapCrossed && this.phase === 'racing' && !this.kart.finished) {
+          if (this.kart.cpTotal > 1) {
+            const lapMs = now - this.lapStart
+            this.lapTimes.push(lapMs)
+            this.lapStart = now
+            if (this.kart.lap >= this.course.laps) this.finishLocal(now)
+            else audio.lap()
+          }
         }
       }
       // AI physics
@@ -674,12 +694,19 @@ export class Game {
           canDrive && !ai.finished,
           false,
         )
+        if (aev.fell) ai.kart.resetToTrack() // AIs get an instant rescue
         if (aev.lapCrossed && ai.kart.cpTotal > 1 && ai.kart.lap >= this.course.laps && !ai.finished) {
           ai.finished = true
           ai.finishMs = now - this.goTime
         }
       }
     }
+
+    // the rescuer also drags you back if you insist on driving the wrong way
+    if (!this.rescue && this.phase === 'racing' && this.kart.wrongWayT > 4.5) {
+      this.startRescue()
+    }
+    this.updateRescue(dt)
 
     if (this.input.consumeReset()) this.kart.resetToTrack()
     if (this.input.consumeUseItem()) {
@@ -690,22 +717,33 @@ export class Game {
       }
     }
 
-    // boost pads (player + AI)
+    // boost pads + jump ramps (player + AI)
     if (this.phase === 'racing') {
       const padActors: { key: string; kart: Kart }[] = [
         { key: 'me', kart: this.kart },
         ...this.ais.map((a) => ({ key: a.id, kart: a.kart })),
       ]
       for (const pa of padActors) {
+        if (pa.key === 'me' && this.rescue) continue
         const tFrac = pa.kart.trackIdx / this.track.N
+        const lat = Math.abs(this.track.lateral(pa.kart.pos, pa.kart.trackIdx))
         this.course.boostPads.forEach((pad, i) => {
           const within = tFrac >= pad.t && tFrac <= pad.t + pad.len
-          const lat = Math.abs(this.track.lateral(pa.kart.pos, pa.kart.trackIdx))
-          const cool = this.padCooldown.get(`${pa.key}:${i}`) ?? 0
-          if (within && lat < this.track.halfWidth && now > cool) {
-            this.padCooldown.set(`${pa.key}:${i}`, now + 1500)
+          const cool = this.padCooldown.get(`${pa.key}:b${i}`) ?? 0
+          if (within && lat < this.track.halfWidth && now > cool && pa.kart.y < 0.2) {
+            this.padCooldown.set(`${pa.key}:b${i}`, now + 1500)
             pa.kart.applyBoost(1.3)
             if (pa.key === 'me') audio.boost()
+          }
+        })
+        this.course.jumpPads.forEach((pad, i) => {
+          // launch at the ramp's top edge
+          const within = tFrac >= pad.t + pad.len * 0.55 && tFrac <= pad.t + pad.len + 0.004
+          const cool = this.padCooldown.get(`${pa.key}:j${i}`) ?? 0
+          if (within && lat < this.track.halfWidth * 0.85 && now > cool && !pa.kart.airborne) {
+            this.padCooldown.set(`${pa.key}:j${i}`, now + 1200)
+            pa.kart.applyJump(10.5)
+            if (pa.key === 'me') audio.driftTick(1)
           }
         })
       }
@@ -832,7 +870,7 @@ export class Game {
 
     // AI visuals
     for (const ai of this.ais) {
-      ai.group.position.set(ai.kart.pos.x, 0, ai.kart.pos.z)
+      ai.group.position.set(ai.kart.pos.x, ai.kart.y, ai.kart.pos.z)
       let yaw = ai.kart.heading
       if (ai.kart.spinT > 0) yaw += ai.kart.spinT * 12
       ai.group.rotation.y = yaw
@@ -847,6 +885,67 @@ export class Game {
     if (this.snapAcc >= 1 / 15) {
       this.snapAcc = 0
       this.opts.onSnapshot(this.snapshot(now))
+    }
+  }
+
+  // ---------- cloud rescuer ----------
+
+  private startRescue() {
+    if (this.rescue) return
+    const k = this.kart
+    // same target as resetToTrack: center of the last passed checkpoint
+    const NCP = 8
+    const cpIdx = Math.floor((((k.nextCp - 1 + NCP) % NCP) / NCP) * this.track.N)
+    const idx = k.cpTotal === 0 ? this.track.spawnPose(0).idx : cpIdx
+    const s = this.track.sampleAt(idx)
+    this.rescue = {
+      t: 0,
+      dur: 2.3,
+      from: k.pos.clone(),
+      fromY: k.y,
+      to: new THREE.Vector3(s.pos.x, 0, s.pos.z),
+      toHeading: Math.atan2(s.tan.x, s.tan.z),
+    }
+    k.speed = 0
+    k.vy = 0
+    k.driftDir = 0
+    k.driftCharge = 0
+    k.boostT = 0
+    k.boosterT = 0
+    k.spinT = 0
+    this.rescuer.visible = true
+    audio.pickup()
+  }
+
+  private updateRescue(dt: number) {
+    if (!this.rescue) return
+    const r = this.rescue
+    r.t += dt
+    const p = Math.min(1, r.t / r.dur)
+    const ease = p * p * (3 - 2 * p) // smoothstep
+    const k = this.kart
+    k.pos.lerpVectors(r.from, r.to, ease)
+    k.y = THREE.MathUtils.lerp(r.fromY, 0, ease) + Math.sin(ease * Math.PI) * 5
+    let dh = r.toHeading - k.heading
+    while (dh > Math.PI) dh -= Math.PI * 2
+    while (dh < -Math.PI) dh += Math.PI * 2
+    k.heading += dh * Math.min(1, 3 * dt)
+    k.velDir = k.heading
+    k.trackIdx = this.track.nearestIndex(k.pos, k.trackIdx)
+    // rescuer floats above the kart, line down to it
+    this.rescuer.position.set(k.pos.x, k.y + 4.2, k.pos.z)
+    this.rescuer.rotation.y = k.heading
+    if (p >= 1) {
+      k.pos.copy(r.to)
+      k.y = 0
+      k.vy = 0
+      k.airborne = false
+      k.heading = r.toHeading
+      k.velDir = r.toHeading
+      k.wrongWayT = 0
+      k.trackIdx = this.track.nearestIndex(k.pos)
+      this.rescue = null
+      this.rescuer.visible = false
     }
   }
 
@@ -904,7 +1003,7 @@ export class Game {
     const k = this.kart
     this.kartGroup.position.set(
       k.pos.x,
-      k.hop * 0.45 * Math.sin(Math.min(1, 1 - k.hop) * Math.PI + 0.001),
+      k.y + k.hop * 0.45 * Math.sin(Math.min(1, 1 - k.hop) * Math.PI + 0.001),
       k.pos.z,
     )
     let yaw = k.heading + k.driftDir * 0.38
@@ -1003,7 +1102,8 @@ export class Game {
       boosting: k.boostT > 0 || k.boosterT > 0,
       boostGauge: k.boostGauge,
       boosterActive: k.boosterT > 0,
-      wrongWay: k.wrongWayT > 0.8,
+      wrongWay: k.wrongWayT > 0.8 && !this.rescue,
+      rescuing: !!this.rescue,
       finished: k.finished,
       finalTotalMs: this.finalTotalMs,
       finalBestLapMs: this.finalBestLapMs,

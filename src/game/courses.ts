@@ -11,6 +11,19 @@ export interface ItemBoxRowDef {
   lanes: number[] // lateral offsets (fraction of half width, -1..1)
 }
 
+export interface JumpPadDef {
+  t: number // ramp start (spline position 0..1)
+  len: number // ramp length in t units
+}
+
+// A cliff section: falling off this side of the road drops you into the void
+// (the cloud rescuer brings you back). Open water maps pit everything beyond the boundary.
+export interface PitDef {
+  t0: number
+  t1: number
+  side: 1 | -1 | 0 // 1 = left of travel, -1 = right, 0 = both
+}
+
 export interface CourseTheme {
   sky: number
   fog: number
@@ -43,6 +56,8 @@ export interface CourseDef {
   ocean?: number // ocean color — open island maps render water beyond the ground
   points: [number, number][]
   boostPads: BoostPadDef[]
+  jumpPads: JumpPadDef[]
+  pits: PitDef[]
   itemRows: ItemBoxRowDef[]
   decorSeed: number
   theme: CourseTheme
@@ -69,6 +84,8 @@ export const COURSES: CourseDef[] = [
       { t: 0.30, len: 0.018 },
       { t: 0.78, len: 0.018 },
     ],
+    jumpPads: [{ t: 0.55, len: 0.012 }],
+    pits: [],
     itemRows: [
       { t: 0.16, lanes: [-0.6, 0, 0.6] },
       { t: 0.48, lanes: [-0.6, 0, 0.6] },
@@ -104,6 +121,11 @@ export const COURSES: CourseDef[] = [
       { t: 0.52, len: 0.016 },
       { t: 0.86, len: 0.016 },
     ],
+    jumpPads: [{ t: 0.3, len: 0.012 }],
+    pits: [
+      { t0: 0.42, t1: 0.5, side: -1 },
+      { t0: 0.76, t1: 0.84, side: 1 },
+    ],
     itemRows: [
       { t: 0.22, lanes: [-0.6, 0, 0.6] },
       { t: 0.58, lanes: [-0.6, 0, 0.6] },
@@ -138,6 +160,8 @@ export const COURSES: CourseDef[] = [
       { t: 0.12, len: 0.016 },
       { t: 0.6, len: 0.016 },
     ],
+    jumpPads: [{ t: 0.45, len: 0.012 }],
+    pits: [],
     itemRows: [
       { t: 0.25, lanes: [-0.6, 0, 0.6] },
       { t: 0.55, lanes: [-0.6, 0, 0.6] },
@@ -173,6 +197,11 @@ export const COURSES: CourseDef[] = [
       { t: 0.2, len: 0.018 },
       { t: 0.68, len: 0.018 },
     ],
+    jumpPads: [
+      { t: 0.35, len: 0.014 },
+      { t: 0.8, len: 0.014 },
+    ],
+    pits: [], // open water map: everything beyond the buoy line is the sea
     itemRows: [
       { t: 0.14, lanes: [-0.6, 0, 0.6] },
       { t: 0.42, lanes: [-0.6, 0, 0.6] },
@@ -209,6 +238,8 @@ export const COURSES: CourseDef[] = [
       { t: 0.37, len: 0.014 },
       { t: 0.7, len: 0.014 },
     ],
+    jumpPads: [{ t: 0.6, len: 0.012 }],
+    pits: [{ t0: 0.26, t1: 0.34, side: -1 }],
     itemRows: [
       { t: 0.18, lanes: [-0.6, 0, 0.6] },
       { t: 0.5, lanes: [-0.6, 0, 0.6] },

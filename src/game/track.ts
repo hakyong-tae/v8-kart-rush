@@ -117,6 +117,30 @@ export class Track {
     return Math.floor((idx / this.N) * NUM_CHECKPOINTS) % NUM_CHECKPOINTS
   }
 
+  /** Is this position over a pit (cliff / open water)? Falling here calls the rescuer. */
+  isPit(idx: number, lat: number): boolean {
+    const c = this.course
+    if (c.open && c.ocean) return Math.abs(lat) > this.wallDist + 0.5
+    if (Math.abs(lat) <= this.halfWidth + 1.6) return false
+    const i = ((idx % this.N) + this.N) % this.N
+    for (const p of c.pits) {
+      const i0 = p.t0 * this.N
+      const i1 = p.t1 * this.N
+      if (i >= i0 && i <= i1 && (p.side === 0 || Math.sign(lat) === p.side)) return true
+    }
+    return false
+  }
+
+  /** Any sample index inside a pit range on the given side (used to skip rails/clamp visuals). */
+  pitAtIndex(i: number, side: 1 | -1): boolean {
+    const idx = ((i % this.N) + this.N) % this.N
+    for (const p of this.course.pits) {
+      if (idx >= p.t0 * this.N && idx <= p.t1 * this.N && (p.side === 0 || p.side === side))
+        return true
+    }
+    return false
+  }
+
   // Spawn grid: 2 columns, behind the start line
   spawnPose(slot: number): { pos: THREE.Vector3; heading: number; idx: number } {
     const back = 12 + Math.floor(slot / 2) * 7 // samples behind start
@@ -141,6 +165,7 @@ function makeStrip(
   latOuter: (i: number) => number,
   y: number,
   colorFn: (i: number) => THREE.Color,
+  skip?: (i: number) => boolean,
 ): THREE.BufferGeometry {
   const N = track.N
   const positions: number[] = []
@@ -148,8 +173,9 @@ function makeStrip(
   const indices: number[] = []
   for (let i = 0; i <= N; i++) {
     const s = track.sampleAt(i)
+    const collapsed = skip?.(i) ?? false
     const li = latInner(i)
-    const lo = latOuter(i)
+    const lo = collapsed ? li : latOuter(i)
     positions.push(s.pos.x + s.nor.x * li, y, s.pos.z + s.nor.z * li)
     positions.push(s.pos.x + s.nor.x * lo, y, s.pos.z + s.nor.z * lo)
     const c = colorFn(i)
@@ -175,6 +201,7 @@ function makeWall(
   y0: number,
   y1: number,
   colorFn: (i: number) => THREE.Color,
+  skip?: (i: number) => boolean,
 ): THREE.BufferGeometry {
   const N = track.N
   const positions: number[] = []
@@ -184,7 +211,8 @@ function makeWall(
     const s = track.sampleAt(i)
     const x = s.pos.x + s.nor.x * lat
     const z = s.pos.z + s.nor.z * lat
-    positions.push(x, y0, z, x, y1, z)
+    const collapsed = skip?.(i) ?? false
+    positions.push(x, y0, z, x, collapsed ? y0 : y1, z)
     const c = colorFn(i)
     colors.push(c.r, c.g, c.b, c.r, c.g, c.b)
     if (i < N) {
@@ -211,23 +239,21 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
   const group = new THREE.Group()
   const hw = track.halfWidth
 
-  // Ground — open island maps get a sand island surrounded by ocean
+  // Ground — open island maps are a sand RING around the course; beyond the
+  // buoy line (and across the deep infield) is open water you can fall into.
   if (course.open && course.ocean) {
-    let ext = 0
-    for (const s of track.samples) ext = Math.max(ext, Math.abs(s.pos.x), Math.abs(s.pos.z))
-    const island = new THREE.Mesh(
-      new THREE.CircleGeometry(ext + 75, 48),
-      new THREE.MeshLambertMaterial({ color: theme.ground }),
+    const sandCol = new THREE.Color(theme.ground)
+    const sand = new THREE.Mesh(
+      makeStrip(track, () => -(track.wallDist + 0.5), () => track.wallDist + 0.5, -0.05, () => sandCol),
+      new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }),
     )
-    island.rotation.x = -Math.PI / 2
-    island.position.y = -0.06
-    group.add(island)
+    group.add(sand)
     const ocean = new THREE.Mesh(
       new THREE.PlaneGeometry(3000, 3000),
       new THREE.MeshLambertMaterial({ color: course.ocean }),
     )
     ocean.rotation.x = -Math.PI / 2
-    ocean.position.y = -0.5
+    ocean.position.y = -1.4
     group.add(ocean)
   } else {
     const ground = new THREE.Mesh(
@@ -268,7 +294,8 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
   )
   group.add(curbL, curbR)
 
-  // Guardrails (KartRider-style walls) on both sides — open maps have none
+  // Guardrails (KartRider-style walls) on both sides — open maps have none,
+  // and rails are skipped along pit (cliff) sections so you can fall off.
   if (!course.open) {
     const railA = new THREE.Color(theme.rail)
     const railB = new THREE.Color(theme.railAccent)
@@ -277,15 +304,95 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
       vertexColors: true,
       side: THREE.DoubleSide,
     })
-    const railL = new THREE.Mesh(makeWall(track, track.wallDist, 0, 0.95, railColor), railMat)
-    const railR = new THREE.Mesh(makeWall(track, -track.wallDist, 0, 0.95, railColor), railMat)
+    const skipL = (i: number) => track.pitAtIndex(i, 1)
+    const skipR = (i: number) => track.pitAtIndex(i, -1)
+    const railL = new THREE.Mesh(makeWall(track, track.wallDist, 0, 0.95, railColor, skipL), railMat)
+    const railR = new THREE.Mesh(makeWall(track, -track.wallDist, 0, 0.95, railColor, skipR), railMat)
     group.add(railL, railR)
     // rail top edge (brighter cap line for readability)
     const capMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })
     const capColor = () => new THREE.Color(0xffffff)
     group.add(
-      new THREE.Mesh(makeWall(track, track.wallDist, 0.95, 1.05, capColor), capMat),
-      new THREE.Mesh(makeWall(track, -track.wallDist, 0.95, 1.05, capColor), capMat),
+      new THREE.Mesh(makeWall(track, track.wallDist, 0.95, 1.05, capColor, skipL), capMat),
+      new THREE.Mesh(makeWall(track, -track.wallDist, 0.95, 1.05, capColor, skipR), capMat),
+    )
+
+    // cliff sections: dark drop face + canyon floor far below
+    if (course.pits.length > 0) {
+      const cliffMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })
+      const cliffCol = new THREE.Color(theme.road).multiplyScalar(0.45)
+      const floorCol = new THREE.Color(theme.ground).multiplyScalar(0.3)
+      for (const side of [1, -1] as const) {
+        const inPit = (i: number) => track.pitAtIndex(i, side)
+        const noPit = (i: number) => !inPit(i)
+        // vertical drop face at the road edge
+        group.add(
+          new THREE.Mesh(
+            makeWall(track, side * (track.halfWidth + 1.6), -10, 0, () => cliffCol, noPit),
+            cliffMat,
+          ),
+        )
+        // pit floor far below
+        group.add(
+          new THREE.Mesh(
+            makeStrip(
+              track,
+              () => side * (track.halfWidth + 1.6),
+              () => side * (track.halfWidth + 34),
+              -10,
+              () => floorCol,
+              noPit,
+            ),
+            cliffMat,
+          ),
+        )
+      }
+    }
+  }
+
+  // Jump ramps: inclined launch pads across the road
+  for (const pad of course.jumpPads) {
+    const i0 = Math.floor(pad.t * track.N)
+    const i1 = Math.floor((pad.t + pad.len) * track.N)
+    const w = hw * 0.8
+    const positions: number[] = []
+    const colors: number[] = []
+    const indices: number[] = []
+    const colA = new THREE.Color(0xffc81e)
+    const colB = new THREE.Color(0xff8c2e)
+    for (let i = i0; i <= i1; i++) {
+      const s = track.sampleAt(i)
+      const k = (i - i0) / Math.max(1, i1 - i0)
+      const y = k * 1.15 // rises to launch height
+      positions.push(s.pos.x - s.nor.x * w, y, s.pos.z - s.nor.z * w)
+      positions.push(s.pos.x + s.nor.x * w, y, s.pos.z + s.nor.z * w)
+      const c = Math.floor((i - i0) / 4) % 2 === 0 ? colA : colB
+      colors.push(c.r, c.g, c.b, c.r, c.g, c.b)
+      if (i < i1) {
+        const a = (i - i0) * 2
+        indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3)
+      }
+    }
+    // back face of the ramp (so it doesn't look hollow from behind)
+    {
+      const s = track.sampleAt(i1)
+      const base = positions.length / 3
+      positions.push(s.pos.x - s.nor.x * w, 0, s.pos.z - s.nor.z * w)
+      positions.push(s.pos.x + s.nor.x * w, 0, s.pos.z + s.nor.z * w)
+      colors.push(colB.r, colB.g, colB.b, colB.r, colB.g, colB.b)
+      const topA = (i1 - i0) * 2
+      indices.push(topA, base, topA + 1, topA + 1, base, base + 1)
+    }
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
+    geo.setIndex(indices)
+    geo.computeVertexNormals()
+    group.add(
+      new THREE.Mesh(
+        geo,
+        new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }),
+      ),
     )
   }
 

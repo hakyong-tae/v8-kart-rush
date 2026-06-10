@@ -29,6 +29,7 @@ export interface CharacterDef {
   tagline: string
 }
 
+// All characters sum to 0 points — balance comes purely from distribution (5-unit grid).
 export const CHARACTERS: CharacterDef[] = [
   {
     id: 'moka', nameKo: '모카', suit: 0xffe14d, skin: 0xffd9b3, hat: 'cap', emoji: '🧢',
@@ -36,19 +37,19 @@ export const CHARACTERS: CharacterDef[] = [
   },
   {
     id: 'coco', nameKo: '코코', suit: 0xff5d8a, skin: 0xffd9b3, hat: 'ribbon', emoji: '🎀',
-    stats: { speed: -1, accel: 0, grip: 0, gauge: 6 }, tagline: '게이지 +6',
+    stats: { speed: -5, accel: 0, grip: 0, gauge: 5 }, tagline: '게이지 +5 · 속도 -5',
   },
   {
     id: 'pico', nameKo: '피코', suit: 0x4aa8ff, skin: 0xffe3c4, hat: 'helmet', emoji: '🪖',
-    stats: { speed: -2, accel: 0, grip: 5, gauge: 0 }, tagline: '드리프트 +5',
+    stats: { speed: -5, accel: 0, grip: 5, gauge: 0 }, tagline: '드리프트 +5 · 속도 -5',
   },
   {
     id: 'lime', nameKo: '라임', suit: 0x84e063, skin: 0xf2c9a0, hat: 'sunglasses', emoji: '🕶️',
-    stats: { speed: 3, accel: -2, grip: -2, gauge: 0 }, tagline: '속도 +3',
+    stats: { speed: 5, accel: 0, grip: -5, gauge: 0 }, tagline: '속도 +5 · 드리프트 -5',
   },
   {
     id: 'toto', nameKo: '토토', suit: 0xff8c2e, skin: 0xffd9b3, hat: 'antenna', emoji: '📡',
-    stats: { speed: -2, accel: 5, grip: 0, gauge: 0 }, tagline: '가속 +5',
+    stats: { speed: -5, accel: 5, grip: 0, gauge: 0 }, tagline: '가속 +5 · 속도 -5',
   },
 ]
 
@@ -67,14 +68,15 @@ export interface KartDef {
   riderScale: number
 }
 
+// All karts sum to +10 points — balance comes purely from distribution (5-unit grid).
 export const KARTS: KartDef[] = [
   {
     id: 'red',
     nameKo: '스파크 R',
     model: 'race', // red open-wheel formula
     ui: '#ff5d4d',
-    stats: { speed: 0, accel: 0, grip: 0, gauge: 0 },
-    tagline: '밸런스',
+    stats: { speed: 5, accel: 5, grip: 0, gauge: 0 },
+    tagline: '올라운드 (속도+5 가속+5)',
     riderPos: [0, 0.35, -0.3],
     riderScale: 0.75,
   },
@@ -83,8 +85,8 @@ export const KARTS: KartDef[] = [
     nameKo: '터보 G',
     model: 'hatchback-sports', // green hot hatch
     ui: '#43c463',
-    stats: { speed: -3, accel: 9, grip: 2, gauge: 0 },
-    tagline: '가속 +9',
+    stats: { speed: -5, accel: 10, grip: 5, gauge: 0 },
+    tagline: '가속 특화 (가속+10)',
     riderPos: [0, 0.62, -0.25],
     riderScale: 0.72,
   },
@@ -93,8 +95,8 @@ export const KARTS: KartDef[] = [
     nameKo: '맥스 O',
     model: 'sedan-sports', // orange muscle car
     ui: '#ff9d2e',
-    stats: { speed: 4, accel: -7, grip: -3, gauge: 0 },
-    tagline: '최고속 +4',
+    stats: { speed: 10, accel: -5, grip: 0, gauge: 5 },
+    tagline: '최고속 특화 (속도+10)',
     riderPos: [0, 0.55, -0.35],
     riderScale: 0.72,
   },
@@ -103,8 +105,8 @@ export const KARTS: KartDef[] = [
     nameKo: '코멧 X',
     model: 'race-future', // blue hover-style racer
     ui: '#4a8dff',
-    stats: { speed: -1, accel: 0, grip: 7, gauge: 18 },
-    tagline: '드리프트 +7 · 게이지 +18',
+    stats: { speed: -10, accel: 0, grip: 10, gauge: 10 },
+    tagline: '드리프트 특화 (드리프트+10 게이지+10)',
     riderPos: [0, 0.5, -0.25],
     riderScale: 0.72,
   },
