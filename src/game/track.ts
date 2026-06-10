@@ -211,14 +211,33 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
   const group = new THREE.Group()
   const hw = track.halfWidth
 
-  // Ground
-  const ground = new THREE.Mesh(
-    new THREE.PlaneGeometry(1600, 1600),
-    new THREE.MeshLambertMaterial({ color: theme.ground }),
-  )
-  ground.rotation.x = -Math.PI / 2
-  ground.position.y = -0.06
-  group.add(ground)
+  // Ground — open island maps get a sand island surrounded by ocean
+  if (course.open && course.ocean) {
+    let ext = 0
+    for (const s of track.samples) ext = Math.max(ext, Math.abs(s.pos.x), Math.abs(s.pos.z))
+    const island = new THREE.Mesh(
+      new THREE.CircleGeometry(ext + 75, 48),
+      new THREE.MeshLambertMaterial({ color: theme.ground }),
+    )
+    island.rotation.x = -Math.PI / 2
+    island.position.y = -0.06
+    group.add(island)
+    const ocean = new THREE.Mesh(
+      new THREE.PlaneGeometry(3000, 3000),
+      new THREE.MeshLambertMaterial({ color: course.ocean }),
+    )
+    ocean.rotation.x = -Math.PI / 2
+    ocean.position.y = -0.5
+    group.add(ocean)
+  } else {
+    const ground = new THREE.Mesh(
+      new THREE.PlaneGeometry(1600, 1600),
+      new THREE.MeshLambertMaterial({ color: theme.ground }),
+    )
+    ground.rotation.x = -Math.PI / 2
+    ground.position.y = -0.06
+    group.add(ground)
+  }
 
   // Road surface
   const roadCol = new THREE.Color(theme.road)
@@ -249,24 +268,26 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
   )
   group.add(curbL, curbR)
 
-  // Guardrails (KartRider-style walls) on both sides
-  const railA = new THREE.Color(theme.rail)
-  const railB = new THREE.Color(theme.railAccent)
-  const railColor = (i: number) => (Math.floor(i / 9) % 2 === 0 ? railA : railB)
-  const railMat = new THREE.MeshLambertMaterial({
-    vertexColors: true,
-    side: THREE.DoubleSide,
-  })
-  const railL = new THREE.Mesh(makeWall(track, track.wallDist, 0, 0.95, railColor), railMat)
-  const railR = new THREE.Mesh(makeWall(track, -track.wallDist, 0, 0.95, railColor), railMat)
-  group.add(railL, railR)
-  // rail top edge (brighter cap line for readability)
-  const capMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })
-  const capColor = () => new THREE.Color(0xffffff)
-  group.add(
-    new THREE.Mesh(makeWall(track, track.wallDist, 0.95, 1.05, capColor), capMat),
-    new THREE.Mesh(makeWall(track, -track.wallDist, 0.95, 1.05, capColor), capMat),
-  )
+  // Guardrails (KartRider-style walls) on both sides — open maps have none
+  if (!course.open) {
+    const railA = new THREE.Color(theme.rail)
+    const railB = new THREE.Color(theme.railAccent)
+    const railColor = (i: number) => (Math.floor(i / 9) % 2 === 0 ? railA : railB)
+    const railMat = new THREE.MeshLambertMaterial({
+      vertexColors: true,
+      side: THREE.DoubleSide,
+    })
+    const railL = new THREE.Mesh(makeWall(track, track.wallDist, 0, 0.95, railColor), railMat)
+    const railR = new THREE.Mesh(makeWall(track, -track.wallDist, 0, 0.95, railColor), railMat)
+    group.add(railL, railR)
+    // rail top edge (brighter cap line for readability)
+    const capMat = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })
+    const capColor = () => new THREE.Color(0xffffff)
+    group.add(
+      new THREE.Mesh(makeWall(track, track.wallDist, 0.95, 1.05, capColor), capMat),
+      new THREE.Mesh(makeWall(track, -track.wallDist, 0.95, 1.05, capColor), capMat),
+    )
+  }
 
   // Center dashed line
   const lineCol = new THREE.Color(theme.line)

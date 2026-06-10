@@ -1,5 +1,6 @@
 import * as THREE from 'three'
-import { getCourse, kartModelFor, riderColorFor, type CourseDef } from './courses'
+import { getCourse, type CourseDef } from './courses'
+import { getKart, getCharacter } from './roster'
 import { Track, buildTrackMeshes } from './track'
 import { Assets, buildDecorations, makeRider, makeClouds } from './assets'
 import { Kart, resolveKartCollision } from './kart'
@@ -32,7 +33,8 @@ export interface HudSnapshot {
   rank: number
   totalRacers: number
   speed: number
-  item: ItemType | null
+  items: (ItemType | null)[]
+  shieldT: number
   driftTier: number
   drifting: boolean
   boosting: boolean
@@ -91,7 +93,9 @@ export class Game {
   goTime = 0 // performance.now() ms when race starts
   lapStart = 0
   lapTimes: number[] = []
-  heldItem: ItemType | null = null
+  slots: (ItemType | null)[] = [null, null] // 2 item slots (KartRider style)
+  shieldT = 0 // shield active seconds remaining
+  shieldBubble: THREE.Mesh
   finalTotalMs = 0
   finalBestLapMs = 0
   private itemCounter = 0
@@ -138,10 +142,11 @@ export class Game {
     // sky clouds (daytime courses)
     if (!theme.night) this.scene.add(makeClouds(this.course.decorSeed))
 
-    // local kart
+    // local kart (kart model + stats from roster, character cosmetic on top)
     const slot = this.mySlot()
-    this.kart = new Kart(this.track, slot)
-    const model = this.assets.spawn(kartModelFor(net.color), 2.4, 'z')
+    const myKart = getKart(net.color)
+    this.kart = new Kart(this.track, slot, myKart.stats)
+    const model = this.assets.spawn(myKart.model, 2.4, 'z')
     if (model) {
       model.rotation.y += KART_MODEL_YAW
       this.kartModel = model
@@ -155,10 +160,18 @@ export class Game {
       this.kartGroup.add(fallback)
     }
     // chibi rider on top
-    const rider = makeRider(riderColorFor(net.color))
+    const rider = makeRider(getCharacter(net.character))
     rider.scale.setScalar(0.85)
     rider.position.set(0, 0.45, -0.3)
     this.kartGroup.add(rider)
+    // shield bubble (visible while shieldT > 0)
+    this.shieldBubble = new THREE.Mesh(
+      new THREE.SphereGeometry(2.0, 16, 12),
+      new THREE.MeshBasicMaterial({ color: 0x7df0ff, transparent: true, opacity: 0.22 }),
+    )
+    this.shieldBubble.position.y = 1
+    this.shieldBubble.visible = false
+    this.kartGroup.add(this.shieldBubble)
     this.scene.add(this.kartGroup)
 
     // boost flame + drift sparks
@@ -186,7 +199,7 @@ export class Game {
     if (opts.mode === 'multi' && opts.players) {
       for (const [account, info] of Object.entries(opts.players)) {
         if (account === net.account) continue
-        this.addRemote(account, info.color)
+        this.addRemote(account, info.color, info.char)
       }
       this.netUnsubs.push(net.onPos((m) => this.onRemotePos(m)))
       this.netUnsubs.push(net.onItem((m) => this.onRemoteItem(m)))
@@ -217,14 +230,14 @@ export class Game {
     return i < 0 ? accounts.length : i
   }
 
-  private addRemote(account: string, color: string) {
+  private addRemote(account: string, color: string, charId?: string) {
     const group = new THREE.Group()
-    const model = this.assets.spawn(kartModelFor(color), 2.4, 'z')
+    const model = this.assets.spawn(getKart(color).model, 2.4, 'z')
     if (model) {
       model.rotation.y += KART_MODEL_YAW
       group.add(model)
     }
-    const rider = makeRider(riderColorFor(color))
+    const rider = makeRider(getCharacter(charId ?? this.opts.players?.[account]?.char ?? 'moka'))
     rider.scale.setScalar(0.85)
     rider.position.set(0, 0.45, -0.3)
     group.add(rider)
@@ -292,6 +305,18 @@ export class Game {
       case 'missileHit':
         if (m.id) this.items.removeMissile(m.id)
         break
+      case 'lightning':
+        // everyone except the caster gets zapped (victim authority: we spin ourselves)
+        if (this.phase === 'racing' && !this.kart.finished) {
+          if (this.shieldT > 0) {
+            this.shieldT = 0
+            audio.pickup()
+          } else {
+            this.kart.applySpin()
+            audio.hit()
+          }
+        }
+        break
     }
   }
 
@@ -304,9 +329,23 @@ export class Game {
   }
 
   private useHeldItem() {
-    if (!this.heldItem || this.phase !== 'racing') return
-    const item = this.heldItem
-    this.heldItem = null
+    if (this.phase !== 'racing') return
+    const idx = this.slots.findIndex((s) => s !== null)
+    if (idx < 0) return
+    const item = this.slots[idx]!
+    this.slots[idx] = null
+    // compact: shift remaining items forward
+    this.slots = [...this.slots.filter((s) => s !== null), null, null].slice(0, 2) as (ItemType | null)[]
+    if (item === 'shield') {
+      this.shieldT = 10
+      audio.pickup()
+      return
+    }
+    if (item === 'lightning') {
+      net.sendItem({ kind: 'lightning' })
+      audio.hit()
+      return
+    }
     if (item === 'boost') {
       this.kart.applyBoost(1.5)
       audio.boost()
@@ -409,26 +448,46 @@ export class Game {
       })
     }
 
+    // shield timer + bubble
+    if (this.shieldT > 0) this.shieldT = Math.max(0, this.shieldT - dt)
+    this.shieldBubble.visible = this.shieldT > 0
+    if (this.shieldBubble.visible) {
+      const s = 1 + 0.05 * Math.sin(now * 0.01)
+      this.shieldBubble.scale.setScalar(s)
+    }
+
     // items
-    this.items.update(dt, now, this.phase === 'racing' ? this.kart : null, this.heldItem !== null, {
+    const slotsFull = this.slots.every((s) => s !== null)
+    this.items.update(dt, now, this.phase === 'racing' ? this.kart : null, slotsFull, {
       onPickup: (boxId) => {
-        this.heldItem = rollItem(this.itemRand)
+        const empty = this.slots.findIndex((s) => s === null)
+        if (empty >= 0) this.slots[empty] = rollItem(this.itemRand)
         audio.pickup()
         net.sendItem({ kind: 'boxTaken', boxId })
       },
       onLocalHitTrap: (id) => {
-        this.kart.applySpin()
         this.items.removeTrap(id)
-        audio.hit()
         net.sendItem({ kind: 'trapHit', id })
+        if (this.shieldT > 0) {
+          this.shieldT = 0 // shield eats the hit
+          audio.pickup()
+          return
+        }
+        this.kart.applySpin()
+        audio.hit()
       },
       onLocalHitMissile: (id) => {
         const m = this.items.missiles.get(id)
         if (m && m.owner === net.account && m.armed > -1.2) return // grace vs own missile
-        this.kart.applySpin()
         this.items.removeMissile(id)
-        audio.hit()
         net.sendItem({ kind: 'missileHit', id })
+        if (this.shieldT > 0) {
+          this.shieldT = 0
+          audio.pickup()
+          return
+        }
+        this.kart.applySpin()
+        audio.hit()
       },
     })
 
@@ -581,7 +640,8 @@ export class Game {
       rank,
       totalRacers: 1 + [...this.remotes.values()].filter((r) => r.group.visible).length,
       speed: Math.abs(k.speed),
-      item: this.heldItem,
+      items: [...this.slots],
+      shieldT: this.shieldT,
       driftTier: k.driftTier,
       drifting: k.driftDir !== 0,
       boosting: k.boostT > 0 || k.boosterT > 0,

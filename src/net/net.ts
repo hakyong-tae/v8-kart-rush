@@ -27,7 +27,7 @@ export interface PosMsg {
 
 export interface ItemMsg {
   a: string
-  kind: 'trap' | 'missile' | 'boxTaken' | 'trapHit' | 'missileHit'
+  kind: 'trap' | 'missile' | 'boxTaken' | 'trapHit' | 'missileHit' | 'lightning'
   id?: string
   boxId?: number
   x?: number
@@ -38,7 +38,8 @@ export interface ItemMsg {
 
 export interface PlayerInfo {
   nick: string
-  color: string
+  color: string // kart id
+  char: string // character id
   ready: boolean
   joinedAt: number
 }
@@ -101,6 +102,12 @@ class Net {
   }
   set color(v: string) {
     localStorage.setItem(LS_COLOR, v)
+  }
+  get character(): string {
+    return localStorage.getItem('v8kart_char') || 'moka'
+  }
+  set character(v: string) {
+    localStorage.setItem('v8kart_char', v)
   }
 
   serverNow(): number {
@@ -208,7 +215,13 @@ class Net {
     await this.server.remoteFunction('joinRace', [roomId])
     this.roomId = roomId
     await this.server.remoteFunction('updatePlayer', [
-      { nick: this.nickname || 'Racer', color: this.color, ready: false, joinedAt: Date.now() },
+      {
+        nick: this.nickname || 'Racer',
+        color: this.color,
+        char: this.character,
+        ready: false,
+        joinedAt: Date.now(),
+      },
     ])
     const state = await this.server.remoteFunction('getRoomSnapshot', [])
     return parseRoomState(state)

@@ -35,8 +35,12 @@ export interface CourseDef {
   difficulty: 1 | 2 | 3
   laps: number
   width: number // full road width
-  shoulder: number // grass strip between curb and guardrail
+  shoulder: number // off-road strip between curb and boundary wall
   surface: 'road' | 'ice'
+  open?: boolean // open map (Mario-Kart-style): no guardrails, wide cuttable off-road
+  offroadMax: number // max speed on the off-road strip
+  offroadDrag: number // extra drag off-road
+  ocean?: number // ocean color — open island maps render water beyond the ground
   points: [number, number][]
   boostPads: BoostPadDef[]
   itemRows: ItemBoxRowDef[]
@@ -54,6 +58,8 @@ export const COURSES: CourseDef[] = [
     width: 14,
     shoulder: 3,
     surface: 'road',
+    offroadMax: 10,
+    offroadDrag: 2.4,
     points: [
       [-60, 0], [40, 0], [100, 8], [140, 45], [132, 95],
       [85, 122], [25, 112], [-30, 132], [-90, 126], [-132, 85],
@@ -85,6 +91,8 @@ export const COURSES: CourseDef[] = [
     width: 12,
     shoulder: 2.6,
     surface: 'road',
+    offroadMax: 10,
+    offroadDrag: 2.4,
     points: [
       [0, 0], [80, 2], [128, -18], [158, -60], [148, -110],
       [100, -132], [62, -100], [42, -62], [0, -52], [-40, -82],
@@ -118,6 +126,8 @@ export const COURSES: CourseDef[] = [
     width: 12.5,
     shoulder: 2.8,
     surface: 'ice', // slippery! lower grip
+    offroadMax: 10,
+    offroadDrag: 2.4,
     points: [
       [0, 0], [90, -5], [150, 20], [170, 70], [140, 115],
       [90, 125], [55, 95], [10, 105], [-30, 140], [-85, 150],
@@ -142,6 +152,42 @@ export const COURSES: CourseDef[] = [
     },
   },
   {
+    id: 'beach',
+    name: 'Sunset Beach',
+    nameKo: '선셋 비치',
+    difficulty: 1,
+    laps: 3,
+    width: 15,
+    shoulder: 17, // wide open sand — cut across if you dare
+    surface: 'road',
+    open: true, // no guardrails, island map
+    offroadMax: 18, // sand barely slows you (shortcuts are a real option)
+    offroadDrag: 0.25, // equilibrium ≈ 15 — cuts trade ~45% speed for distance
+    ocean: 0x2e9fd8,
+    points: [
+      [0, 0], [100, 0], [170, 28], [202, 88], [182, 150],
+      [122, 182], [42, 172], [-28, 192], [-110, 182], [-172, 132],
+      [-192, 62], [-162, 0], [-92, -28],
+    ],
+    boostPads: [
+      { t: 0.2, len: 0.018 },
+      { t: 0.68, len: 0.018 },
+    ],
+    itemRows: [
+      { t: 0.14, lanes: [-0.6, 0, 0.6] },
+      { t: 0.42, lanes: [-0.6, 0, 0.6] },
+      { t: 0.72, lanes: [-0.6, 0, 0.6] },
+      { t: 0.92, lanes: [-0.6, 0, 0.6] },
+    ],
+    decorSeed: 77,
+    theme: {
+      sky: 0xffc1a1, fog: 0xffe0c2, fogDensity: 0.0012,
+      ground: 0xf2dca8, road: 0x8a7f72, curbA: 0xff8c5a, curbB: 0xfff4e0,
+      rail: 0xfff4e0, railAccent: 0xff8c5a,
+      line: 0xfff8ea, sun: 0xffc890, sunIntensity: 1.25, ambient: 0.95,
+    },
+  },
+  {
     id: 'neon',
     name: 'Neon Night',
     nameKo: '네온 나이트',
@@ -150,6 +196,8 @@ export const COURSES: CourseDef[] = [
     width: 11,
     shoulder: 2.4,
     surface: 'road',
+    offroadMax: 10,
+    offroadDrag: 2.4,
     points: [
       [0, 0], [70, 4], [112, 38], [102, 88], [62, 110],
       [52, 158], [92, 198], [62, 248], [0, 258], [-52, 230],
@@ -183,21 +231,4 @@ export function getCourse(id: string): CourseDef {
   return c
 }
 
-export const KART_COLORS = [
-  { id: 'red', model: 'raceCarRed', ui: '#ff5d4d', rider: 0xffe14d },
-  { id: 'green', model: 'raceCarGreen', ui: '#43c463', rider: 0xff8c2e },
-  { id: 'orange', model: 'raceCarOrange', ui: '#ff9d2e', rider: 0x4aa8ff },
-  { id: 'white', model: 'raceCarWhite', ui: '#f2f2f2', rider: 0xff5d8a },
-] as const
-
-export type KartColorId = (typeof KART_COLORS)[number]['id']
-
-export function kartModelFor(
-  color: string,
-): 'raceCarRed' | 'raceCarGreen' | 'raceCarOrange' | 'raceCarWhite' {
-  return KART_COLORS.find((k) => k.id === color)?.model ?? 'raceCarRed'
-}
-
-export function riderColorFor(color: string): number {
-  return KART_COLORS.find((k) => k.id === color)?.rider ?? 0xffe14d
-}
+// kart & character rosters moved to roster.ts

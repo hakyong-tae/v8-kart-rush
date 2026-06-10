@@ -6,6 +6,8 @@ const ITEM_ICON: Record<string, string> = {
   boost: '🚀',
   missile: '🎯',
   trap: '🟣',
+  shield: '🛡️',
+  lightning: '⚡',
 }
 
 export function Hud({
@@ -91,11 +93,20 @@ export function Hud({
         </div>
       )}
 
-      {/* item slot (item mode) */}
+      {/* item slots (item mode, KartRider 2-slot) */}
       {raceMode === 'item' && (
-        <div className={`hud-item ${snap.item ? 'has' : ''}`}>
-          {snap.item ? ITEM_ICON[snap.item] : ''}
+        <div className="hud-items">
+          {snap.items.map((it, i) => (
+            <div key={i} className={`hud-item ${it ? 'has' : ''}`}>
+              {it ? ITEM_ICON[it] : ''}
+            </div>
+          ))}
         </div>
+      )}
+
+      {/* shield active badge */}
+      {snap.shieldT > 0 && (
+        <div className="hud-shield">🛡️ {snap.shieldT.toFixed(0)}s</div>
       )}
 
       {/* booster gauge (speed mode, KartRider-style) */}

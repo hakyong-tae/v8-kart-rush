@@ -2,7 +2,7 @@
 // Deployed with: npx -y @agent8/deploy
 // Conventions: define the class only (no exports), no setTimeout/setInterval.
 
-const COURSE_IDS = ['sunny', 'canyon', 'ice', 'neon']
+const COURSE_IDS = ['sunny', 'beach', 'canyon', 'ice', 'neon']
 const RACE_MODES = ['speed', 'item']
 // sanity bounds for submitted race times (3 laps)
 const MIN_TOTAL_MS = 30 * 1000
@@ -37,6 +37,7 @@ class Server {
     const safe = {
       nick: String(info && info.nick ? info.nick : 'Racer').slice(0, 15),
       color: String(info && info.color ? info.color : 'red').slice(0, 12),
+      char: String(info && info.char ? info.char : 'moka').slice(0, 12),
       ready: !!(info && info.ready),
       joinedAt: Number((info && info.joinedAt) || Date.now()),
     }

@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { Track } from './track'
 import { Kart } from './kart'
 
-export type ItemType = 'boost' | 'missile' | 'trap'
+export type ItemType = 'boost' | 'missile' | 'trap' | 'shield' | 'lightning'
 
 export interface ItemBox {
   id: number
@@ -29,9 +29,11 @@ export interface Missile {
 
 export function rollItem(rand: () => number): ItemType {
   const r = rand()
-  if (r < 0.4) return 'boost'
-  if (r < 0.7) return 'missile'
-  return 'trap'
+  if (r < 0.3) return 'boost'
+  if (r < 0.55) return 'missile'
+  if (r < 0.75) return 'trap'
+  if (r < 0.9) return 'shield'
+  return 'lightning'
 }
 
 const BOX_RESPAWN_MS = 3500

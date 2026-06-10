@@ -1,6 +1,9 @@
 import * as THREE from 'three'
 import { Track, NUM_CHECKPOINTS } from './track'
 import type { InputState } from './input'
+import type { KartStats } from './roster'
+
+const DEFAULT_STATS: KartStats = { speed: 1, accel: 1, grip: 1, gauge: 1 }
 
 // Arcade kart tuning — KartRider-style: drift charges a booster gauge,
 // full gauge fires a long manual boost.
@@ -54,7 +57,11 @@ export class Kart {
   // race progress metric for ranking: laps + fraction
   progress = 0
 
-  constructor(public track: Track, slot = 0) {
+  constructor(
+    public track: Track,
+    slot = 0,
+    public stats: KartStats = DEFAULT_STATS,
+  ) {
     this.respawnAtSlot(slot)
   }
 
@@ -148,23 +155,27 @@ export class Kart {
     if (this.boostT > 0) this.boostT -= dt
     if (this.boosterT > 0) this.boosterT -= dt
 
-    let maxFwd = this.boosterT > 0 ? BOOSTER_SPEED : this.boostT > 0 ? BOOST_SPEED : MAX_SPEED
-    if (this.offroad && !boosting) maxFwd = GRASS_SPEED
+    const course = this.track.course
+    let maxFwd =
+      (this.boosterT > 0 ? BOOSTER_SPEED : this.boostT > 0 ? BOOST_SPEED : MAX_SPEED) *
+      this.stats.speed
+    if (this.offroad && !boosting) maxFwd = course.offroadMax
 
     // longitudinal
+    const accel = ACCEL * this.stats.accel
     if (boosting) {
       this.speed += (maxFwd - this.speed) * Math.min(1, 4 * dt)
     } else if (throttle > 0) {
       const sat = Math.max(0, 1 - this.speed / maxFwd)
-      this.speed += ACCEL * sat * throttle * dt
+      this.speed += accel * sat * throttle * dt
       if (this.speed > maxFwd) this.speed += (maxFwd - this.speed) * Math.min(1, 3 * dt)
     } else if (throttle < 0) {
       if (this.speed > 0.5) this.speed -= BRAKE * dt
-      else this.speed = Math.max(-REVERSE_MAX, this.speed + ACCEL * 0.6 * throttle * dt)
+      else this.speed = Math.max(-REVERSE_MAX, this.speed + accel * 0.6 * throttle * dt)
     } else {
       this.speed *= Math.exp(-COAST_DRAG * dt)
     }
-    if (this.offroad && !boosting) this.speed *= Math.exp(-GRASS_DRAG * dt)
+    if (this.offroad && !boosting) this.speed *= Math.exp(-course.offroadDrag * dt)
 
     // drift state machine
     if (this.driftDir === 0) {
@@ -187,7 +198,10 @@ export class Kart {
         this.driftCharge += dt * (1 + 0.5 * Math.abs(steer))
         if (gaugeEnabled && this.boostGauge < 1) {
           const before = this.boostGauge
-          this.boostGauge = Math.min(1, this.boostGauge + GAUGE_RATE * dt * (1 + 0.4 * Math.abs(steer)))
+          this.boostGauge = Math.min(
+            1,
+            this.boostGauge + GAUGE_RATE * this.stats.gauge * dt * (1 + 0.4 * Math.abs(steer)),
+          )
           if (before < 1 && this.boostGauge >= 1) ev.gaugeFilled = true
         }
       }
@@ -211,13 +225,14 @@ export class Kart {
     this.heading += turn * fwd * dt
 
     // velocity direction chases heading (low grip while drifting => slide)
-    const grip = this.ice
-      ? this.driftDir !== 0
-        ? GRIP_DRIFT_ICE
-        : GRIP_ICE
-      : this.driftDir !== 0
-        ? GRIP_DRIFT
-        : GRIP_NORMAL
+    const grip =
+      (this.ice
+        ? this.driftDir !== 0
+          ? GRIP_DRIFT_ICE
+          : GRIP_ICE
+        : this.driftDir !== 0
+          ? GRIP_DRIFT
+          : GRIP_NORMAL) * this.stats.grip
     let dAng = this.heading - this.velDir
     while (dAng > Math.PI) dAng -= Math.PI * 2
     while (dAng < -Math.PI) dAng += Math.PI * 2

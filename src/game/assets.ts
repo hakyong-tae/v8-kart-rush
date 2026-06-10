@@ -1,6 +1,7 @@
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { Track, rng } from './track'
+import type { CharacterDef } from './roster'
 
 // Kenney Racing Kit (CC0) models, served from /models/
 const MODEL_NAMES = [
@@ -97,11 +98,13 @@ export class Assets {
 
 // ---------- procedural extras (no asset files needed) ----------
 
-// Cute chibi rider that sits on top of the kart (KartRider vibe)
-export function makeRider(suitColor: number): THREE.Group {
+// Cute chibi rider that sits on top of the kart (KartRider vibe).
+// Characters are independent from karts — pass any CharacterDef.
+export function makeRider(char: CharacterDef): THREE.Group {
   const g = new THREE.Group()
-  const suit = new THREE.MeshLambertMaterial({ color: suitColor })
-  const skin = new THREE.MeshLambertMaterial({ color: 0xffd9b3 })
+  const suit = new THREE.MeshLambertMaterial({ color: char.suit })
+  const skin = new THREE.MeshLambertMaterial({ color: char.skin })
+  const dark = new THREE.MeshBasicMaterial({ color: 0x26233a })
 
   const body = new THREE.Mesh(new THREE.SphereGeometry(0.34, 12, 10), suit)
   body.scale.set(1, 0.9, 0.8)
@@ -113,22 +116,87 @@ export function makeRider(suitColor: number): THREE.Group {
   head.position.y = 1.08
   g.add(head)
 
-  // helmet shell (same color as suit) covering the top half
-  const helmet = new THREE.Mesh(
-    new THREE.SphereGeometry(0.4, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.55),
-    suit,
-  )
-  helmet.position.y = 1.12
-  g.add(helmet)
-
-  // face: two eyes + smile (tiny dark meshes on the front of the head, +Z)
-  const eyeMat = new THREE.MeshBasicMaterial({ color: 0x26233a })
-  for (const sx of [-0.13, 0.13]) {
-    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 6), eyeMat)
-    eye.position.set(sx, 1.08, 0.33)
-    g.add(eye)
+  // hat variants
+  switch (char.hat) {
+    case 'helmet': {
+      const helmet = new THREE.Mesh(
+        new THREE.SphereGeometry(0.4, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.55),
+        suit,
+      )
+      helmet.position.y = 1.12
+      g.add(helmet)
+      break
+    }
+    case 'cap': {
+      const top = new THREE.Mesh(
+        new THREE.SphereGeometry(0.38, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.45),
+        suit,
+      )
+      top.position.y = 1.16
+      g.add(top)
+      const brim = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.05, 0.3), suit)
+      brim.position.set(0, 1.28, 0.38)
+      brim.rotation.x = 0.12
+      g.add(brim)
+      break
+    }
+    case 'ribbon': {
+      const hair = new THREE.Mesh(
+        new THREE.SphereGeometry(0.39, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.5),
+        new THREE.MeshLambertMaterial({ color: 0x6b4a2f }),
+      )
+      hair.position.y = 1.12
+      g.add(hair)
+      for (const sx of [-1, 1]) {
+        const wing = new THREE.Mesh(new THREE.ConeGeometry(0.12, 0.26, 6), suit)
+        wing.position.set(sx * 0.26, 1.44, 0)
+        wing.rotation.z = sx * (Math.PI / 2 + 0.4)
+        g.add(wing)
+      }
+      const knot = new THREE.Mesh(new THREE.SphereGeometry(0.07, 8, 6), suit)
+      knot.position.set(0, 1.44, 0)
+      g.add(knot)
+      break
+    }
+    case 'sunglasses': {
+      const hair = new THREE.Mesh(
+        new THREE.SphereGeometry(0.38, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.5),
+        new THREE.MeshLambertMaterial({ color: 0x2e2a26 }),
+      )
+      hair.position.y = 1.13
+      g.add(hair)
+      const shades = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.09, 0.06), dark)
+      shades.position.set(0, 1.14, 0.32)
+      g.add(shades)
+      break
+    }
+    case 'antenna': {
+      const helmet = new THREE.Mesh(
+        new THREE.SphereGeometry(0.4, 14, 10, 0, Math.PI * 2, 0, Math.PI * 0.55),
+        suit,
+      )
+      helmet.position.y = 1.12
+      g.add(helmet)
+      const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.3, 6), dark)
+      rod.position.y = 1.55
+      g.add(rod)
+      const ball = new THREE.Mesh(
+        new THREE.SphereGeometry(0.07, 8, 6),
+        new THREE.MeshBasicMaterial({ color: 0xff4d4d }),
+      )
+      ball.position.y = 1.72
+      g.add(ball)
+      break
+    }
   }
-  const smile = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.018, 6, 10, Math.PI), eyeMat)
+
+  // face: two eyes + smile (front of the head, +Z)
+  for (const sx of [-0.13, 0.13]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 6), dark)
+    eye.position.set(sx, char.hat === 'sunglasses' ? 1.02 : 1.08, 0.33)
+    if (char.hat !== 'sunglasses') g.add(eye)
+  }
+  const smile = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.018, 6, 10, Math.PI), dark)
   smile.position.set(0, 0.98, 0.33)
   smile.rotation.set(0.2, 0, Math.PI)
   g.add(smile)
@@ -140,6 +208,67 @@ export function makeRider(suitColor: number): THREE.Group {
     arm.rotation.x = -1.0
     g.add(arm)
   }
+  return g
+}
+
+// Beach decorations (procedural — Kenney kit has no palms)
+export function makePalm(rand: () => number): THREE.Group {
+  const g = new THREE.Group()
+  const trunkMat = new THREE.MeshLambertMaterial({ color: 0x9c6b3f })
+  const leafMat = new THREE.MeshLambertMaterial({ color: 0x3da653 })
+  const h = 5 + rand() * 3
+  const lean = (rand() - 0.5) * 0.5
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.28, h, 7), trunkMat)
+  trunk.position.y = h / 2
+  trunk.rotation.z = lean
+  g.add(trunk)
+  const topX = Math.sin(lean) * -h * 0.5 * 0 + -lean * h * 0.5
+  for (let i = 0; i < 6; i++) {
+    const frond = new THREE.Mesh(new THREE.ConeGeometry(0.35, 2.6, 5), leafMat)
+    const ang = (i / 6) * Math.PI * 2
+    frond.position.set(topX + Math.cos(ang) * 1.0, h + 0.2, Math.sin(ang) * 1.0)
+    frond.rotation.set(Math.sin(ang) * 1.25, 0, Math.cos(ang) * -1.25)
+    frond.scale.y = 1.2
+    g.add(frond)
+  }
+  const coco = new THREE.Mesh(new THREE.SphereGeometry(0.22, 7, 6), trunkMat)
+  coco.position.set(topX, h - 0.1, 0)
+  g.add(coco)
+  return g
+}
+
+export function makeUmbrella(rand: () => number): THREE.Group {
+  const g = new THREE.Group()
+  const pole = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.06, 0.06, 2.6, 6),
+    new THREE.MeshLambertMaterial({ color: 0xeeeeee }),
+  )
+  pole.position.y = 1.3
+  g.add(pole)
+  const colors = [0xff5d4d, 0x37c8ff, 0xffe14d, 0xff8c5a]
+  const canopy = new THREE.Mesh(
+    new THREE.ConeGeometry(1.7, 0.8, 10),
+    new THREE.MeshLambertMaterial({ color: colors[Math.floor(rand() * colors.length)] }),
+  )
+  canopy.position.y = 2.7
+  g.add(canopy)
+  return g
+}
+
+export function makeBuoy(): THREE.Group {
+  const g = new THREE.Group()
+  const base = new THREE.Mesh(
+    new THREE.SphereGeometry(0.55, 8, 7),
+    new THREE.MeshLambertMaterial({ color: 0xff5d4d }),
+  )
+  base.position.y = 0.45
+  g.add(base)
+  const top = new THREE.Mesh(
+    new THREE.SphereGeometry(0.3, 8, 6),
+    new THREE.MeshLambertMaterial({ color: 0xffffff }),
+  )
+  top.position.y = 0.95
+  g.add(top)
   return g
 }
 
@@ -210,6 +339,38 @@ export function buildDecorations(track: Track, assets: Assets): THREE.Group {
   place(assets.spawn('tentLong', 4), Math.floor(N * 0.75), -(hw + 13), true)
 
   const wall = track.wallDist
+
+  // Open island maps (beach): buoys mark the boundary, palms & umbrellas on the sand
+  if (track.course.open) {
+    for (let k = 0; k < 50; k++) {
+      const idx = Math.floor((k / 50) * N)
+      for (const side of [1, -1]) {
+        const buoy = makeBuoy()
+        const s = track.sampleAt(idx)
+        buoy.position.set(
+          s.pos.x + s.nor.x * side * (wall + 1.2),
+          0,
+          s.pos.z + s.nor.z * side * (wall + 1.2),
+        )
+        group.add(buoy)
+      }
+    }
+    for (let k = 0; k < 60; k++) {
+      const idx = Math.floor(rand() * N)
+      const side = rand() < 0.5 ? 1 : -1
+      const lat = side * (hw + 5 + rand() * (wall - hw - 8))
+      const s = track.sampleAt(idx)
+      const p = new THREE.Vector3(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
+      // keep clear of the road itself
+      const nearIdx = track.nearestIndex(p)
+      if (Math.abs(track.lateral(p, nearIdx)) < hw + 4) continue
+      const obj = rand() < 0.65 ? makePalm(rand) : makeUmbrella(rand)
+      obj.position.set(p.x, 0, p.z)
+      obj.rotation.y = rand() * Math.PI * 2
+      group.add(obj)
+    }
+    return group
+  }
 
   // Light posts for night courses (outside the guardrail)
   if (track.course.theme.night) {

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { COURSES, KART_COLORS, getCourse } from './game/courses'
+import { COURSES, getCourse } from './game/courses'
+import { KARTS, CHARACTERS, getKart } from './game/roster'
 import { Track } from './game/track'
 import { Assets } from './game/assets'
 import { Game, type HudSnapshot } from './game/Game'
@@ -60,10 +61,12 @@ export default function App() {
 function TitleScreen({ netStatus, go }: { netStatus: NetStatus; go: (s: Screen) => void }) {
   const [nick, setNick] = useState(net.nickname)
   const [color, setColor] = useState(net.color)
+  const [charId, setCharId] = useState(net.character)
 
   const saveProfile = () => {
     net.nickname = nick.trim() || 'Racer'
     net.color = color
+    net.character = charId
   }
 
   return (
@@ -71,7 +74,7 @@ function TitleScreen({ netStatus, go }: { netStatus: NetStatus; go: (s: Screen) 
       <h1 className="logo">
         V8 KART <span className="logo-accent">RUSH</span>
       </h1>
-      <p className="tagline">드리프트 · 부스트 · 아이템전 — 코스별 최속 랭킹에 도전하세요</p>
+      <p className="tagline">드리프트 · 부스터 · 아이템전 — 코스별 최속 랭킹에 도전하세요</p>
 
       <div className="card profile">
         <label className="field">
@@ -83,17 +86,47 @@ function TitleScreen({ netStatus, go }: { netStatus: NetStatus; go: (s: Screen) 
             onChange={(e) => setNick(e.target.value)}
           />
         </label>
-        <div className="field">
-          <span>카트</span>
-          <div className="colors">
-            {KART_COLORS.map((c) => (
+      </div>
+
+      <div className="pickers">
+        <div className="card picker">
+          <h4>캐릭터</h4>
+          <div className="picker-row">
+            {CHARACTERS.map((c) => (
               <button
                 key={c.id}
-                className={`color-dot ${color === c.id ? 'sel' : ''}`}
-                style={{ background: c.ui }}
-                onClick={() => setColor(c.id)}
-                aria-label={c.id}
-              />
+                className={`pick-card ${charId === c.id ? 'sel' : ''}`}
+                onClick={() => setCharId(c.id)}
+              >
+                <span
+                  className="pick-face"
+                  style={{ background: `#${c.suit.toString(16).padStart(6, '0')}` }}
+                >
+                  {c.emoji}
+                </span>
+                <b>{c.nameKo}</b>
+              </button>
+            ))}
+          </div>
+        </div>
+        <div className="card picker">
+          <h4>카트</h4>
+          <div className="picker-row">
+            {KARTS.map((k) => (
+              <button
+                key={k.id}
+                className={`pick-card ${color === k.id ? 'sel' : ''}`}
+                onClick={() => setColor(k.id)}
+              >
+                <span className="pick-face" style={{ background: k.ui }}>🏎️</span>
+                <b>{k.nameKo}</b>
+                <small>{k.tagline}</small>
+                <span className="stat-bars">
+                  <i style={{ width: `${(k.stats.speed - 0.9) * 500}%` }} title="속도" />
+                  <i style={{ width: `${(k.stats.accel - 0.9) * 500}%` }} title="가속" />
+                  <i style={{ width: `${(k.stats.grip - 0.9) * 500}%` }} title="드리프트" />
+                </span>
+              </button>
             ))}
           </div>
         </div>
@@ -347,7 +380,7 @@ function LobbyScreen({
           <div key={p.account} className="lobby-row">
             <span
               className="color-dot small"
-              style={{ background: KART_COLORS.find((c) => c.id === p.info.color)?.ui ?? '#ccc' }}
+              style={{ background: getKart(p.info.color).ui ?? '#ccc' }}
             />
             <span className="nick">
               {p.info.nick}
@@ -574,7 +607,7 @@ function ResultsScreen({
                 <span className="rank">{i + 1}</span>
                 <span
                   className="color-dot small"
-                  style={{ background: KART_COLORS.find((c) => c.id === e.color)?.ui ?? '#ccc' }}
+                  style={{ background: getKart(e.color ?? 'red').ui }}
                 />
                 {e.nickname}
                 <span className="t">{fmtTime(e.totalMs)}</span>
@@ -592,7 +625,7 @@ function ResultsScreen({
                 <span className="rank">{i + 1}</span>
                 <span
                   className="color-dot small"
-                  style={{ background: KART_COLORS.find((c) => c.id === r.color)?.ui ?? '#ccc' }}
+                  style={{ background: getKart(r.color).ui ?? '#ccc' }}
                 />
                 {r.nick}
                 <span className="t">{fmtTime(r.totalMs)}</span>
