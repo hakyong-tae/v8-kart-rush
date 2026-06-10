@@ -9,7 +9,8 @@ import { ItemManager, rollItem, type ItemType, type ItemActor } from './items'
 import { audio } from './audio'
 import { net, type PosMsg, type ItemMsg, type PlayerInfo } from '../net/net'
 
-const KART_MODEL_YAW = Math.PI // Car Kit vehicles face -Z; flip to +Z forward
+// Car Kit vehicles natively face +Z (front wheels at +z) — same as our heading axis.
+const KART_MODEL_YAW = 0
 
 export type GamePhase = 'countdown' | 'racing' | 'finished'
 

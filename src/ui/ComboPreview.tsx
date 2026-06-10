@@ -82,10 +82,7 @@ export function ComboPreview({
     const kart = getKart(kartId)
     const char = getCharacter(charId)
     const model = assets.spawn(kart.model, 2.4, 'z')
-    if (model) {
-      model.rotation.y = Math.PI
-      group.add(model)
-    }
+    if (model) group.add(model)
     const rider = makeRider(char)
     rider.scale.setScalar(kart.riderScale)
     rider.position.set(...kart.riderPos)
