@@ -9,7 +9,7 @@ import { ItemManager, rollItem, type ItemType, type ItemActor } from './items'
 import { audio } from './audio'
 import { net, type PosMsg, type ItemMsg, type PlayerInfo } from '../net/net'
 import { getLang } from '../i18n'
-import { ADS, makeAdBalloon } from './ads'
+import { ADS, makeAdBalloon, AD_LAYER } from './ads'
 
 // Car Kit vehicles natively face +Z (front wheels at +z) — same as our heading axis.
 const KART_MODEL_YAW = 0
@@ -214,7 +214,15 @@ export class Game {
   private ghostRecAcc = 0
 
   // ad balloons drifting across the sky
-  private balloons: { group: THREE.Group; angle: number; radius: number; speed: number; height: number; bob: number }[] = []
+  private balloons: {
+    group: THREE.Group
+    banner: THREE.Mesh
+    angle: number
+    radius: number
+    speed: number
+    height: number
+    bob: number
+  }[] = []
 
   // cloud rescuer (구름이)
   private rescuer: THREE.Group
@@ -258,6 +266,7 @@ export class Game {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     this.camera = new THREE.PerspectiveCamera(72, 1, 0.1, 900)
+    this.camera.layers.enable(AD_LAYER) // ads visible on the main view only (mirror cam skips them)
     this.resize()
     window.addEventListener('resize', this.resize)
 
@@ -278,10 +287,11 @@ export class Game {
       let ext = 0
       for (const s of this.track.samples) ext = Math.max(ext, Math.abs(s.pos.x), Math.abs(s.pos.z))
       for (let i = 0; i < 3; i++) {
-        const balloon = makeAdBalloon(ADS[(i * 2 + 1) % ADS.length])
+        const { group: balloon, banner } = makeAdBalloon(ADS[(i * 2 + 1) % ADS.length])
         this.scene.add(balloon)
         this.balloons.push({
           group: balloon,
+          banner,
           angle: (i / 3) * Math.PI * 2,
           radius: ext * (0.55 + i * 0.25),
           speed: 0.02 + i * 0.008,
@@ -1025,15 +1035,16 @@ export class Game {
       ai.group.rotation.y = yaw
     }
 
-    // ad balloons drift slowly around the sky
+    // ad balloons drift slowly around the sky; banners billboard toward the player
     for (const b of this.balloons) {
       b.angle += b.speed * dt
-      b.group.position.set(
-        Math.cos(b.angle) * b.radius,
-        b.height + Math.sin(now * 0.0004 + b.bob) * 2.5,
-        Math.sin(b.angle) * b.radius,
-      )
-      b.group.rotation.y = -b.angle // banner faces along the flight path
+      const gx = Math.cos(b.angle) * b.radius
+      const gz = Math.sin(b.angle) * b.radius
+      b.group.position.set(gx, b.height + Math.sin(now * 0.0004 + b.bob) * 2.5, gz)
+      b.group.rotation.y = -b.angle
+      // counter parent yaw so the banner always faces the camera
+      b.banner.rotation.y =
+        Math.atan2(this.camera.position.x - gx, this.camera.position.z - gz) - b.group.rotation.y
     }
 
     this.updateKartVisual(now, dt)

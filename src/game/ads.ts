@@ -65,8 +65,16 @@ function adTexture(ad: AdDef): THREE.Texture {
   return fallback
 }
 
+// Ads live on render layer 1: visible to the main camera, hidden from the
+// rear-view mirror cam (the mirror is for action, not advertising).
+export const AD_LAYER = 1
+
+function markAdLayer(g: THREE.Object3D) {
+  g.traverse((o) => o.layers.set(AD_LAYER))
+}
+
 /** A hot-air balloon towing an ad banner — floats around the course sky. */
-export function makeAdBalloon(ad: AdDef): THREE.Group {
+export function makeAdBalloon(ad: AdDef): { group: THREE.Group; banner: THREE.Mesh } {
   const g = new THREE.Group()
   const envMat = new THREE.MeshLambertMaterial({ color: new THREE.Color(ad.bg2) })
   const env = new THREE.Mesh(new THREE.SphereGeometry(6, 14, 12), envMat)
@@ -117,7 +125,8 @@ export function makeAdBalloon(ad: AdDef): THREE.Group {
   const link = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 1.8, 4), ropeMat)
   link.position.y = -11.4
   g.add(link)
-  return g
+  markAdLayer(g)
+  return { group: g, banner }
 }
 
 /** A free-standing trackside ad board (~8 wide), front face textured. */
@@ -140,5 +149,6 @@ export function makeAdBoard(ad: AdDef): THREE.Group {
     leg.position.set(sx, 0.9, 0)
     g.add(leg)
   }
+  markAdLayer(g)
   return g
 }
