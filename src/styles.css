@@ -204,10 +204,15 @@ body {
 /* character & kart pickers */
 .pickers {
   display: flex;
-  gap: 16px;
-  flex-wrap: wrap;
-  justify-content: center;
-  max-width: 1000px;
+  flex-direction: column; /* character row on top, kart garage rows below */
+  gap: 14px;
+  align-items: center;
+  max-width: 1100px;
+  width: 100%;
+}
+
+.picker {
+  width: 100%;
 }
 
 .picker h4 {

@@ -74,60 +74,46 @@ export interface KartDef {
   riderScale: number
 }
 
-// All karts sum to +10 points — balance comes purely from distribution (5-unit grid).
+// ============================================================================
+// 카트 차고 — 스탯 수정 가이드
+//   stats: { speed, accel, grip, gauge }  ← 이 숫자만 바꾸면 됩니다.
+//   컨벤션: 5단위 / 4개 합계 +10 권장 (모든 카트 총점 동일 = 밸런스)
+//   speed=최고속도, accel=가속, grip=드리프트 안정성, gauge=부스터 게이지 충전
+//   1포인트 = +1% (물리에 곱연산으로 반영)
+// ============================================================================
+function kart(
+  id: string,
+  name: string,
+  nameKo: string,
+  model: string,
+  modelYaw: number,
+  ui: string,
+  stats: StatPoints,
+  riderPos: [number, number, number],
+  riderScale: number,
+  hover = false,
+): KartDef {
+  const tag = `S${stats.speed} A${stats.accel} D${stats.grip} G${stats.gauge}`
+  return { id, name, nameKo, model, modelYaw, hover, ui, stats, tagline: tag, taglineEn: tag, riderPos, riderScale }
+}
+
+const Y = Math.PI // 180°
+const Y2 = Math.PI / 2 // 90°
+
 export const KARTS: KartDef[] = [
-  {
-    id: 'red',
-    name: 'Spark R',
-    nameKo: '스파크 R',
-    model: 'karts/formula', // detailed open-wheel F1 (scaranto, CC0)
-    modelYaw: Math.PI,
-    ui: '#e04438',
-    stats: { speed: 5, accel: 5, grip: 0, gauge: 0 },
-    tagline: '올라운드 (속도+5 가속+5)',
-    taglineEn: 'All-round (Spd+5 Acc+5)',
-    riderPos: [0, 0.42, -0.18],
-    riderScale: 0.62,
-  },
-  {
-    id: 'green',
-    name: 'Turbo G',
-    nameKo: '터보 G',
-    model: 'karts/gokart', // proper go-kart, separated wheels (Zsky, CC-BY)
-    modelYaw: Math.PI,
-    ui: '#3a6df0',
-    stats: { speed: -5, accel: 10, grip: 5, gauge: 0 },
-    tagline: '가속 특화 (가속+10)',
-    taglineEn: 'Acceleration (Acc+10)',
-    riderPos: [0, 0.28, -0.05],
-    riderScale: 0.6,
-  },
-  {
-    id: 'orange',
-    name: 'Max O',
-    nameKo: '맥스 O',
-    model: 'karts/hotrod', // exposed-engine hot rod (Chris Tarello, CC-BY)
-    modelYaw: -Math.PI / 2,
-    ui: '#9fe8d9',
-    stats: { speed: 10, accel: -5, grip: 0, gauge: 5 },
-    tagline: '최고속 특화 (속도+10)',
-    taglineEn: 'Top speed (Spd+10)',
-    riderPos: [0, 1.18, -0.5],
-    riderScale: 0.55,
-  },
-  {
-    id: 'white',
-    name: 'Comet X',
-    nameKo: '코멧 X',
-    model: 'karts/kartred', // classic go-kart with pennant (Google Poly, CC-BY)
-    modelYaw: 0,
-    ui: '#ff8c5a',
-    stats: { speed: -10, accel: 0, grip: 10, gauge: 10 },
-    tagline: '드리프트 특화 (드리프트+10 게이지+10)',
-    taglineEn: 'Drift (Drift+10 Gauge+10)',
-    riderPos: [0, 0.52, -0.1],
-    riderScale: 0.62,
-  },
+  //   id        name        한글이름     model glb                 yaw   UI색      { speed, accel, grip, gauge }                라이더 위치        크기
+  kart('red',    'Spark R',  '스파크 R',  'karts/formula',            Y, '#e04438', { speed: 5,   accel: 5,  grip: 0,  gauge: 0 },  [0, 0.42, -0.18], 0.62),
+  kart('green',  'Turbo G',  '터보 G',    'karts/gokart',             Y, '#3a6df0', { speed: -5,  accel: 10, grip: 5,  gauge: 0 },  [0, 0.28, -0.05], 0.6),
+  kart('orange', 'Max O',    '맥스 O',    'karts/hotrod',           -Y2, '#9fe8d9', { speed: 10,  accel: -5, grip: 0,  gauge: 5 },  [0, 1.18, -0.5],  0.55),
+  kart('white',  'Comet X',  '코멧 X',    'karts/kartred',            0, '#ff8c5a', { speed: -10, accel: 0,  grip: 10, gauge: 10 }, [0, 0.52, -0.1],  0.62),
+  kart('race',   'Racer K',  '레이서 K',  'karts/race',               0, '#ff5d4d', { speed: 5,   accel: 0,  grip: 5,  gauge: 0 },  [0, 0.35, -0.3],  0.75),
+  kart('hatch',  'Dash H',   '대시 H',    'karts/hatchback-sports',   0, '#43c463', { speed: 0,   accel: 10, grip: 0,  gauge: 0 },  [0, 0.62, -0.25], 0.72),
+  kart('muscle', 'Boss M',   '보스 M',    'karts/sedan-sports',       0, '#ff9d2e', { speed: 10,  accel: 0,  grip: -5, gauge: 5 },  [0, 0.55, -0.35], 0.72),
+  kart('future', 'Nova F',   '노바 F',    'karts/race-future',        0, '#4a8dff', { speed: -5,  accel: 5,  grip: 5,  gauge: 5 },  [0, 0.5, -0.25],  0.72),
+  kart('boxy',   'Boxy B',   '박시 B',    'karts/boxkart',            0, '#c0392b', { speed: -10, accel: 15, grip: 5,  gauge: 0 },  [0, 1.0, -0.15],  0.55),
+  kart('hover',  'Volt V',   '볼트 V',    'karts/hover',              0, '#b33960', { speed: -5,  accel: 0,  grip: 15, gauge: 0 },  [0, 0.42, -0.1],  0.5, true),
+  kart('sporty', 'Zoom Z',   '줌 Z',      'karts/sportscar',          0, '#d8e6f2', { speed: 15,  accel: -5, grip: 0,  gauge: 0 },  [0, 0.78, -0.15], 0.58),
+  kart('sedan',  'Cruise C', '크루즈 C',  'karts/sedan',              0, '#8fb8c9', { speed: 0,   accel: 0,  grip: 5,  gauge: 5 },  [0, 0.8, -0.15],  0.6),
 ]
 
 export function getKart(id: string): KartDef {

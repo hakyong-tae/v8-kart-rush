@@ -83,13 +83,13 @@ export class KartVisual {
       stripBasePlate(model)
       // collect wheel nodes (Car Kit ships them as named children)
       model.traverse((o) => {
-        if (o.name.startsWith('wheel-')) {
+        if (/wheel|tire|tyre/i.test(o.name)) {
           const box = new THREE.Box3().setFromObject(o)
           const size = new THREE.Vector3()
           box.getSize(size)
           this.wheels.push({
             node: o,
-            front: o.name.includes('front'),
+            front: /front/i.test(o.name),
             radius: Math.max(0.12, size.y / 2),
             baseY: o.position.y,
           })
