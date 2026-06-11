@@ -64,6 +64,8 @@ export interface KartDef {
   name: string // English
   nameKo: string
   model: string // GLB in public/models/ — each kart is a DIFFERENT body
+  modelYaw: number // yaw to make the model face +Z (sources vary)
+  hover?: boolean // no wheels — floats with a bob
   ui: string // css color matching the body (minimap dots / UI chips)
   stats: StatPoints
   tagline: string
@@ -78,49 +80,53 @@ export const KARTS: KartDef[] = [
     id: 'red',
     name: 'Spark R',
     nameKo: '스파크 R',
-    model: 'race', // red open-wheel formula
-    ui: '#ff5d4d',
+    model: 'karts/formula', // detailed open-wheel F1 (scaranto, CC0)
+    modelYaw: Math.PI,
+    ui: '#e04438',
     stats: { speed: 5, accel: 5, grip: 0, gauge: 0 },
     tagline: '올라운드 (속도+5 가속+5)',
     taglineEn: 'All-round (Spd+5 Acc+5)',
-    riderPos: [0, 0.35, -0.3],
-    riderScale: 0.75,
+    riderPos: [0, 0.42, -0.18],
+    riderScale: 0.62,
   },
   {
     id: 'green',
     name: 'Turbo G',
     nameKo: '터보 G',
-    model: 'hatchback-sports', // green hot hatch
-    ui: '#43c463',
+    model: 'karts/gokart', // proper go-kart, separated wheels (Zsky, CC-BY)
+    modelYaw: Math.PI,
+    ui: '#3a6df0',
     stats: { speed: -5, accel: 10, grip: 5, gauge: 0 },
     tagline: '가속 특화 (가속+10)',
     taglineEn: 'Acceleration (Acc+10)',
-    riderPos: [0, 0.62, -0.25],
-    riderScale: 0.72,
+    riderPos: [0, 0.28, -0.05],
+    riderScale: 0.6,
   },
   {
     id: 'orange',
     name: 'Max O',
     nameKo: '맥스 O',
-    model: 'sedan-sports', // orange muscle car
-    ui: '#ff9d2e',
+    model: 'karts/hotrod', // exposed-engine hot rod (Chris Tarello, CC-BY)
+    modelYaw: -Math.PI / 2,
+    ui: '#9fe8d9',
     stats: { speed: 10, accel: -5, grip: 0, gauge: 5 },
     tagline: '최고속 특화 (속도+10)',
     taglineEn: 'Top speed (Spd+10)',
-    riderPos: [0, 0.55, -0.35],
-    riderScale: 0.72,
+    riderPos: [0, 1.18, -0.5],
+    riderScale: 0.55,
   },
   {
     id: 'white',
     name: 'Comet X',
     nameKo: '코멧 X',
-    model: 'race-future', // blue hover-style racer
-    ui: '#4a8dff',
+    model: 'karts/kartred', // classic go-kart with pennant (Google Poly, CC-BY)
+    modelYaw: 0,
+    ui: '#ff8c5a',
     stats: { speed: -10, accel: 0, grip: 10, gauge: 10 },
     tagline: '드리프트 특화 (드리프트+10 게이지+10)',
     taglineEn: 'Drift (Drift+10 Gauge+10)',
-    riderPos: [0, 0.5, -0.25],
-    riderScale: 0.72,
+    riderPos: [0, 0.52, -0.1],
+    riderScale: 0.62,
   },
 ]
 

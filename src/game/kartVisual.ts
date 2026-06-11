@@ -6,13 +6,60 @@ import * as THREE from 'three'
 import { Assets, makeRider } from './assets'
 import { getKart, getCharacter } from './roster'
 
-const KART_MODEL_YAW = 0 // Car Kit vehicles natively face +Z
+// Some poly.pizza models bake a flat display mat into the body mesh.
+// Strip triangles that lie flat on the model's lowest plane.
+function stripBasePlate(root: THREE.Object3D) {
+  const whole = new THREE.Box3().setFromObject(root)
+  const size = new THREE.Vector3()
+  whole.getSize(size)
+  root.updateWorldMatrix(true, true)
+  root.traverse((o) => {
+    const mesh = o as THREE.Mesh
+    if (!mesh.isMesh) return
+    let geo = mesh.geometry as THREE.BufferGeometry
+    if (!geo.index) return stripNonIndexed(mesh, whole, size)
+    const pos = geo.attributes.position
+    const idx = geo.index.array
+    const keep: number[] = []
+    const v = new THREE.Vector3()
+    const ys: number[] = []
+    for (let i = 0; i < idx.length; i += 3) {
+      let flat = true
+      for (let j = 0; j < 3; j++) {
+        v.fromBufferAttribute(pos, idx[i + j])
+        mesh.localToWorld(v)
+        ys[j] = v.y
+        if (v.y > whole.min.y + size.y * 0.075) flat = false
+      }
+      if (!flat) keep.push(idx[i], idx[i + 1], idx[i + 2])
+    }
+    if (keep.length < idx.length) geo.setIndex(keep)
+  })
+}
+
+function stripNonIndexed(mesh: THREE.Mesh, whole: THREE.Box3, size: THREE.Vector3) {
+  const geo = mesh.geometry as THREE.BufferGeometry
+  const pos = geo.attributes.position
+  const v = new THREE.Vector3()
+  const keepIdx: number[] = []
+  for (let i = 0; i < pos.count; i += 3) {
+    let flat = true
+    for (let j = 0; j < 3; j++) {
+      v.fromBufferAttribute(pos, i + j)
+      mesh.localToWorld(v)
+      if (v.y > whole.min.y + size.y * 0.075) flat = false
+    }
+    if (!flat) keepIdx.push(i, i + 1, i + 2)
+  }
+  if (keepIdx.length < pos.count) geo.setIndex(keepIdx)
+}
 
 export class KartVisual {
   group = new THREE.Group() // world transform (position + heading)
   body = new THREE.Group() // rolls / pitches inside the group
   private wheels: { node: THREE.Object3D; front: boolean; radius: number; baseY: number }[] = []
   private rider: THREE.Group | null = null
+  private hover = false
   private spin = 0
   private roll = 0
   private pitch = 0
@@ -22,10 +69,18 @@ export class KartVisual {
 
   constructor(assets: Assets, kartId: string, charId: string) {
     const def = getKart(kartId)
+    this.hover = !!def.hover
     const model = assets.spawn(def.model, 2.4, 'z')
     if (model) {
-      model.rotation.y += KART_MODEL_YAW
+      model.rotation.y += def.modelYaw
       this.body.add(model)
+      // remove any baked-in display mat lying on the lowest plane.
+      // Geometry is cloned first — spawn() shares geometry between clones.
+      model.traverse((o) => {
+        const mesh = o as THREE.Mesh
+        if (mesh.isMesh) mesh.geometry = mesh.geometry.clone()
+      })
+      stripBasePlate(model)
       // collect wheel nodes (Car Kit ships them as named children)
       model.traverse((o) => {
         if (o.name.startsWith('wheel-')) {
@@ -109,23 +164,9 @@ export class KartVisual {
         }
         break
       }
-      case 'white': {
-        // neon underglow
-        const glow = new THREE.Mesh(
-          new THREE.PlaneGeometry(2.0, 3.0),
-          new THREE.MeshBasicMaterial({
-            color: 0x37c8ff,
-            transparent: true,
-            opacity: 0.32,
-            blending: THREE.AdditiveBlending,
-            depthWrite: false,
-          }),
-        )
-        glow.rotation.x = -Math.PI / 2
-        glow.position.y = 0.06
-        this.body.add(glow)
+      case 'white':
+        // the classic go-kart already comes with its own pennant — no extras
         break
-      }
     }
   }
 
@@ -155,9 +196,13 @@ export class KartVisual {
     this.body.rotation.z = this.roll
     this.body.rotation.x = this.pitch
 
-    // suspension bob (settles when airborne)
-    this.bobT += dt * (4 + speedK * 14)
-    const bob = airborne ? 0 : Math.sin(this.bobT) * 0.012 * (0.3 + speedK)
+    // suspension bob — hover karts float higher with a slow drift
+    this.bobT += dt * (this.hover ? 2.2 : 4 + speedK * 14)
+    const bob = this.hover
+      ? 0.22 + Math.sin(this.bobT) * 0.07
+      : airborne
+        ? 0
+        : Math.sin(this.bobT) * 0.012 * (0.3 + speedK)
     this.body.position.y = bob
 
     // rider leans against the roll and braces in drifts

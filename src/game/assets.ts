@@ -4,13 +4,13 @@ import { Track, rng } from './track'
 import type { CharacterDef } from './roster'
 import { ADS, makeAdBoard } from './ads'
 
-// Kenney Racing Kit + Car Kit (CC0) models, served from /models/
+// Kart bodies (poly.pizza, see public/models/karts/CREDITS.md) + Kenney kits
 const MODEL_NAMES = [
-  // kart bodies (Car Kit — each kart type is a different vehicle)
-  'race',
-  'hatchback-sports',
-  'sedan-sports',
-  'race-future',
+  // kart bodies — each kart type is a different vehicle
+  'karts/formula',
+  'karts/gokart',
+  'karts/hotrod',
+  'karts/kartred',
   // legacy racing-kit cars (kept for decoration use)
   'raceCarRed',
   'raceCarGreen',
