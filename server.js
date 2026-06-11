@@ -117,6 +117,7 @@ class Server {
       boost: d.boost ? 1 : 0,
       spin: d.spin ? 1 : 0,
       drift: d.drift || 0,
+      st: d.st || 0,
     })
   }
 

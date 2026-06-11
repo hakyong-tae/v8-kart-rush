@@ -11,9 +11,9 @@ import { net, type PosMsg, type ItemMsg, type PlayerInfo } from '../net/net'
 import { getLang } from '../i18n'
 import { ADS, makeAdBalloon, AD_LAYER } from './ads'
 import { Particles } from './particles'
+import { KartVisual } from './kartVisual'
 
 // Car Kit vehicles natively face +Z (front wheels at +z) — same as our heading axis.
-const KART_MODEL_YAW = 0
 
 export type GamePhase = 'countdown' | 'racing' | 'finished'
 
@@ -105,6 +105,7 @@ export interface GameOpts {
 
 interface RemoteKart {
   account: string
+  vis: KartVisual
   group: THREE.Group
   from: { x: number; z: number; h: number; t: number }
   to: { x: number; z: number; h: number; t: number }
@@ -114,6 +115,7 @@ interface RemoteKart {
   spin: number
   boost: number
   drift: number
+  st: number
   lastSeen: number
   spinVis: number
   color: string
@@ -125,6 +127,7 @@ interface AiActor {
   color: string // kart id
   team?: Team
   kart: Kart
+  vis: KartVisual
   group: THREE.Group
   slot: ItemType | null
   shieldT: number
@@ -143,28 +146,6 @@ const PHYS_DT = 1 / 120
 const AI_NAMES: Record<string, string[]> = {
   ko: ['로키', '제트', '핀', '루나', '볼트', '치치', '미오', '두두'],
   en: ['Rocky', 'Jet', 'Fin', 'Luna', 'Bolt', 'Chichi', 'Mio', 'Dudu'],
-}
-
-function makeKartVisual(assets: Assets, kartId: string, charId: string): THREE.Group {
-  const group = new THREE.Group()
-  const def = getKart(kartId)
-  const model = assets.spawn(def.model, 2.4, 'z')
-  if (model) {
-    model.rotation.y += KART_MODEL_YAW
-    group.add(model)
-  } else {
-    const fallback = new THREE.Mesh(
-      new THREE.BoxGeometry(1.4, 0.8, 2.4),
-      new THREE.MeshLambertMaterial({ color: 0xe04438 }),
-    )
-    fallback.position.y = 0.5
-    group.add(fallback)
-  }
-  const rider = makeRider(getCharacter(charId))
-  rider.scale.setScalar(def.riderScale)
-  rider.position.set(...def.riderPos)
-  group.add(rider)
-  return group
 }
 
 function makeTranslucent(obj: THREE.Object3D, opacity: number) {
@@ -191,7 +172,8 @@ export class Game {
   renderer: THREE.WebGLRenderer
   input = new Input()
   kart: Kart
-  kartGroup: THREE.Group
+  kartVis!: KartVisual
+  kartGroup!: THREE.Group
   items: ItemManager
   remotes = new Map<string, RemoteKart>()
   ais: AiActor[] = []
@@ -210,7 +192,9 @@ export class Game {
   private itemRand = rng(Math.floor(Math.random() * 1e9))
 
   // ghost
+  private ghostVis: KartVisual | null = null
   private ghostGroup: THREE.Group | null = null
+  private ghostPrev = new THREE.Vector3()
   private ghostRec: number[] = []
   private ghostRecAcc = 0
 
@@ -315,7 +299,8 @@ export class Game {
       slot,
       combineStats(getCharacter(net.character), getKart(net.color)),
     )
-    this.kartGroup = makeKartVisual(assets, net.color, net.character)
+    this.kartVis = new KartVisual(assets, net.color, net.character)
+    this.kartGroup = this.kartVis.group
     this.scene.add(this.kartGroup)
 
     this.shieldBubble = new THREE.Mesh(
@@ -368,10 +353,10 @@ export class Game {
 
     // single-player speed race: ghost of the record holder
     if (opts.mode === 'time' && opts.raceMode === 'speed' && opts.ghost?.samples?.length) {
-      const g = makeKartVisual(assets, opts.ghost.kart ?? 'red', opts.ghost.char ?? 'moka')
-      makeTranslucent(g, 0.38)
-      this.ghostGroup = g
-      this.scene.add(g)
+      this.ghostVis = new KartVisual(assets, opts.ghost.kart ?? 'red', opts.ghost.char ?? 'moka')
+      makeTranslucent(this.ghostVis.group, 0.38)
+      this.ghostGroup = this.ghostVis.group
+      this.scene.add(this.ghostGroup)
     }
 
     // remote players (multi)
@@ -418,15 +403,16 @@ export class Game {
       const stats = combineStats(getCharacter(charId), getKart(color))
       const slotIdx = i >= playerSlot ? i + 1 : i // player keeps their grid slot
       const kart = new Kart(this.track, slotIdx, { ...stats })
-      const group = makeKartVisual(this.assets, color, charId)
-      this.scene.add(group)
+      const vis = new KartVisual(this.assets, color, charId)
+      this.scene.add(vis.group)
       const names = AI_NAMES[getLang()] ?? AI_NAMES.en
       this.ais.push({
         id: `ai${i}`,
         name: names[i % names.length],
         color,
         kart,
-        group,
+        vis,
+        group: vis.group,
         slot: null,
         shieldT: 0,
         nextItemAt: 0,
@@ -476,11 +462,12 @@ export class Game {
   }
 
   private addRemote(account: string, color: string, charId?: string) {
-    const group = makeKartVisual(
+    const vis = new KartVisual(
       this.assets,
       color,
       charId ?? this.opts.players?.[account]?.char ?? 'moka',
     )
+    const group = vis.group
     const slotIdx = Object.keys(this.opts.players ?? {})
       .sort((a, b) => (this.opts.players![a].joinedAt ?? 0) - (this.opts.players![b].joinedAt ?? 0))
       .indexOf(account)
@@ -491,6 +478,7 @@ export class Game {
     const now = performance.now()
     this.remotes.set(account, {
       account,
+      vis,
       group,
       from: { x: sp.pos.x, z: sp.pos.z, h: sp.heading, t: now },
       to: { x: sp.pos.x, z: sp.pos.z, h: sp.heading, t: now },
@@ -500,6 +488,7 @@ export class Game {
       spin: 0,
       boost: 0,
       drift: 0,
+      st: 0,
       lastSeen: now,
       spinVis: 0,
       color,
@@ -522,6 +511,7 @@ export class Game {
     r.spin = m.spin
     r.boost = m.boost
     r.drift = m.drift
+    r.st = m.st ?? 0
     r.lastSeen = now
   }
 
@@ -706,6 +696,7 @@ export class Game {
       } else {
         this.kart.applySpin()
         audio.hit()
+        this.camShake = Math.max(this.camShake, 0.35)
       }
     } else {
       const ai = this.ais.find((a) => a.id === actorId)
@@ -824,8 +815,14 @@ export class Game {
           audio.gaugeFull()
           this.particles.gaugeBurst(this.kart.pos)
         }
-        if (ev.wallBumped) audio.wallBump()
-        if (ev.landed) this.particles.landingDust(this.kart.pos)
+        if (ev.wallBumped) {
+          audio.wallBump()
+          this.camShake = Math.max(this.camShake, 0.18)
+        }
+        if (ev.landed) {
+          this.particles.landingDust(this.kart.pos)
+          this.camShake = Math.max(this.camShake, 0.22)
+        }
         if (ev.fell) {
           if (this.course.open && this.course.ocean)
             this.particles.splash(this.kart.pos.clone().setY(0))
@@ -975,6 +972,7 @@ export class Game {
         r.spinVis += dt * 8
         r.group.rotation.y += r.spinVis
       } else r.spinVis = 0
+      r.vis.update(dt, r.speed, r.st, r.drift, false)
       r.group.visible = now - r.lastSeen < 5000
       if (r.group.visible && this.phase === 'racing') {
         resolveKartCollision(this.kart, r.group.position)
@@ -999,6 +997,7 @@ export class Game {
         z: this.kart.pos.z,
         h: this.kart.heading,
         s: this.kart.speed,
+        st: Math.round(this.input.state.steer * 100) / 100,
         lap: this.kart.lap,
         prog: this.kart.progress,
         boost: this.kart.boostT > 0 || this.kart.boosterT > 0 ? 1 : 0,
@@ -1035,6 +1034,11 @@ export class Game {
         while (dh > Math.PI) dh -= Math.PI * 2
         while (dh < -Math.PI) dh += Math.PI * 2
         this.ghostGroup.rotation.y = s[i0 + 2] + dh * f
+        if (this.ghostVis) {
+          const gspeed = this.ghostGroup.position.distanceTo(this.ghostPrev) / Math.max(dt, 0.001)
+          this.ghostPrev.copy(this.ghostGroup.position)
+          this.ghostVis.update(dt, Math.min(gspeed, 45), 0, 0, false)
+        }
       } else if (gd.samples.length >= 3) {
         // ghost finished — park at its last sample
         const n = gd.samples.length
@@ -1050,6 +1054,7 @@ export class Game {
       let yaw = ai.kart.heading
       if (ai.kart.spinT > 0) yaw += ai.kart.spinT * 12
       ai.group.rotation.y = yaw
+      ai.vis.update(dt, ai.kart.speed, ai.steer, ai.kart.driftDir, ai.kart.airborne)
     }
 
     // continuous particle emitters: drift smoke, booster flames, offroad dust
@@ -1283,6 +1288,14 @@ export class Game {
     while (dh < -Math.PI) dh += Math.PI * 2
     this.kartGroup.rotation.y += dh * Math.min(1, 14 * dt)
 
+    this.kartVis.update(
+      dt,
+      k.speed,
+      this.input.state.steer,
+      k.driftDir,
+      k.airborne,
+    )
+
     this.boostFlame.visible = k.boostT > 0 || k.boosterT > 0
     if (this.boostFlame.visible) {
       const big = k.boosterT > 0 ? 1.8 : 1
@@ -1307,6 +1320,7 @@ export class Game {
   private camPos = new THREE.Vector3()
   private camInit = false
   private fovPunch = 0
+  private camShake = 0
 
   private updateCamera(dt: number) {
     const k = this.kart
@@ -1323,6 +1337,11 @@ export class Game {
     const speedZoom = 1 + Math.min(0.2, Math.abs(k.speed) / 140)
     this.camPos.lerp(target, Math.min(1, 6 * dt))
     this.camera.position.copy(this.camPos)
+    if (this.camShake > 0.002) {
+      this.camera.position.x += (Math.random() - 0.5) * this.camShake
+      this.camera.position.y += (Math.random() - 0.5) * this.camShake * 0.7
+      this.camShake *= Math.exp(-6 * dt)
+    }
     this.camera.fov = 72 * speedZoom + this.fovPunch * 13
     this.camera.updateProjectionMatrix()
     this.camera.lookAt(k.pos.x + fwdX * 6, 1.2, k.pos.z + fwdZ * 6)

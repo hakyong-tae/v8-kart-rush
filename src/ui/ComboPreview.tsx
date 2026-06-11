@@ -1,7 +1,8 @@
 import { useEffect, useRef } from 'react'
 import * as THREE from 'three'
-import { Assets, makeRider } from '../game/assets'
+import { Assets } from '../game/assets'
 import { getCharacter, getKart, combinePoints } from '../game/roster'
+import { KartVisual } from '../game/kartVisual'
 import { useI18n } from '../i18n'
 
 const STAT_KEYS = [
@@ -28,6 +29,7 @@ export function ComboPreview({
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const groupRef = useRef<THREE.Group | null>(null)
+  const visRef = useRef<KartVisual | null>(null)
 
   // renderer/scene created once; the combo group is rebuilt on selection change
   useEffect(() => {
@@ -61,6 +63,8 @@ export function ComboPreview({
       const dt = Math.min(0.05, (now - last) / 1000)
       last = now
       group.rotation.y += dt * 0.9
+      // idle life: wheels creep, gentle steering wiggle
+      visRef.current?.update(dt, 2.5, Math.sin(now * 0.0012) * 0.6, 0, false)
       renderer.render(scene, camera)
     }
     raf = requestAnimationFrame(loop)
@@ -76,14 +80,9 @@ export function ComboPreview({
     const group = groupRef.current
     if (!group) return
     group.clear()
-    const kart = getKart(kartId)
-    const char = getCharacter(charId)
-    const model = assets.spawn(kart.model, 2.4, 'z')
-    if (model) group.add(model)
-    const rider = makeRider(char)
-    rider.scale.setScalar(kart.riderScale)
-    rider.position.set(...kart.riderPos)
-    group.add(rider)
+    const vis = new KartVisual(assets, kartId, charId)
+    visRef.current = vis
+    group.add(vis.group)
   }, [assets, charId, kartId])
 
   const { t, lang } = useI18n()

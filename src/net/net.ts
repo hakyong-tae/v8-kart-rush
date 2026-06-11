@@ -23,6 +23,7 @@ export interface PosMsg {
   boost: 0 | 1
   spin: 0 | 1
   drift: number // -1|0|1
+  st?: number // steer -1..1 (wheel/lean animation on remote karts)
 }
 
 export interface ItemMsg {
