@@ -65,7 +65,9 @@ export interface KartDef {
   nameKo: string
   model: string // GLB in public/models/ — each kart is a DIFFERENT body
   modelYaw: number // yaw to make the model face +Z (sources vary)
+  size: number // target body length (world units) — tune freely
   hover?: boolean // no wheels — floats with a bob
+  stripBase?: boolean // remove baked-in display mat (only for models that have one)
   ui: string // css color matching the body (minimap dots / UI chips)
   stats: StatPoints
   tagline: string
@@ -87,33 +89,37 @@ function kart(
   nameKo: string,
   model: string,
   modelYaw: number,
+  size: number,
   ui: string,
   stats: StatPoints,
   riderPos: [number, number, number],
   riderScale: number,
-  hover = false,
+  opts: { hover?: boolean; stripBase?: boolean } = {},
 ): KartDef {
   const tag = `S${stats.speed} A${stats.accel} D${stats.grip} G${stats.gauge}`
-  return { id, name, nameKo, model, modelYaw, hover, ui, stats, tagline: tag, taglineEn: tag, riderPos, riderScale }
+  return {
+    id, name, nameKo, model, modelYaw, size, hover: opts.hover, stripBase: opts.stripBase,
+    ui, stats, tagline: tag, taglineEn: tag, riderPos, riderScale,
+  }
 }
 
 const Y = Math.PI // 180°
 const Y2 = Math.PI / 2 // 90°
 
 export const KARTS: KartDef[] = [
-  //   id        name        한글이름     model glb                 yaw   UI색      { speed, accel, grip, gauge }                라이더 위치        크기
-  kart('red',    'Spark R',  '스파크 R',  'karts/formula',            Y, '#e04438', { speed: 5,   accel: 5,  grip: 0,  gauge: 0 },  [0, 0.42, -0.18], 0.62),
-  kart('green',  'Turbo G',  '터보 G',    'karts/gokart',             Y, '#3a6df0', { speed: -5,  accel: 10, grip: 5,  gauge: 0 },  [0, 0.28, -0.05], 0.6),
-  kart('orange', 'Max O',    '맥스 O',    'karts/hotrod',           -Y2, '#9fe8d9', { speed: 10,  accel: -5, grip: 0,  gauge: 5 },  [0, 1.18, -0.5],  0.55),
-  kart('white',  'Comet X',  '코멧 X',    'karts/kartred',            0, '#ff8c5a', { speed: -10, accel: 0,  grip: 10, gauge: 10 }, [0, 0.52, -0.1],  0.62),
-  kart('race',   'Racer K',  '레이서 K',  'karts/race',               0, '#ff5d4d', { speed: 5,   accel: 0,  grip: 5,  gauge: 0 },  [0, 0.35, -0.3],  0.75),
-  kart('hatch',  'Dash H',   '대시 H',    'karts/hatchback-sports',   0, '#43c463', { speed: 0,   accel: 10, grip: 0,  gauge: 0 },  [0, 0.62, -0.25], 0.72),
-  kart('muscle', 'Boss M',   '보스 M',    'karts/sedan-sports',       0, '#ff9d2e', { speed: 10,  accel: 0,  grip: -5, gauge: 5 },  [0, 0.55, -0.35], 0.72),
-  kart('future', 'Nova F',   '노바 F',    'karts/race-future',        0, '#4a8dff', { speed: -5,  accel: 5,  grip: 5,  gauge: 5 },  [0, 0.5, -0.25],  0.72),
-  kart('boxy',   'Boxy B',   '박시 B',    'karts/boxkart',            0, '#c0392b', { speed: -10, accel: 15, grip: 5,  gauge: 0 },  [0, 1.0, -0.15],  0.55),
-  kart('hover',  'Volt V',   '볼트 V',    'karts/hover',              0, '#b33960', { speed: -5,  accel: 0,  grip: 15, gauge: 0 },  [0, 0.42, -0.1],  0.5, true),
-  kart('sporty', 'Zoom Z',   '줌 Z',      'karts/sportscar',          0, '#d8e6f2', { speed: 15,  accel: -5, grip: 0,  gauge: 0 },  [0, 0.78, -0.15], 0.58),
-  kart('sedan',  'Cruise C', '크루즈 C',  'karts/sedan',              0, '#8fb8c9', { speed: 0,   accel: 0,  grip: 5,  gauge: 5 },  [0, 0.8, -0.15],  0.6),
+  //   id        name        한글이름     model glb                 yaw  크기   UI색      { speed, accel, grip, gauge }                라이더 위치        크기   옵션
+  kart('red',    'Spark R',  '스파크 R',  'karts/formula',          Y2, 1.2,  '#e04438', { speed: 5,   accel: 5,  grip: 0,  gauge: 0 },  [0, 0.42, -0.18], 0.62),
+  kart('green',  'Turbo G',  '터보 G',    'karts/gokart',            0, 2.4,  '#3a6df0', { speed: -5,  accel: 10, grip: 5,  gauge: 0 },  [0, 0.28, -0.05], 0.6),
+  kart('orange', 'Max O',    '맥스 O',    'karts/hotrod',          -Y2, 1.68, '#9fe8d9', { speed: 10,  accel: -5, grip: 0,  gauge: 5 },  [0, 1.18, -0.5],  0.55),
+  kart('white',  'Comet X',  '코멧 X',    'karts/kartred',          Y2, 1.2,  '#ff8c5a', { speed: -10, accel: 0,  grip: 10, gauge: 10 }, [0, 0.52, -0.1],  0.62, { stripBase: true }),
+  kart('race',   'Racer K',  '레이서 K',  'karts/race',              0, 2.4,  '#ff5d4d', { speed: 5,   accel: 0,  grip: 5,  gauge: 0 },  [0, 0.35, -0.3],  0.75),
+  kart('hatch',  'Dash H',   '대시 H',    'karts/hatchback-sports',  0, 2.4,  '#43c463', { speed: 0,   accel: 10, grip: 0,  gauge: 0 },  [0, 0.62, -0.25], 0.72),
+  kart('muscle', 'Boss M',   '보스 M',    'karts/sedan-sports',      0, 2.4,  '#ff9d2e', { speed: 10,  accel: 0,  grip: -5, gauge: 5 },  [0, 0.55, -0.35], 0.72),
+  kart('future', 'Nova F',   '노바 F',    'karts/race-future',       0, 2.4,  '#4a8dff', { speed: -5,  accel: 5,  grip: 5,  gauge: 5 },  [0, 0.5, -0.25],  0.72),
+  kart('boxy',   'Boxy B',   '박시 B',    'karts/boxkart',           Y, 1.92, '#c0392b', { speed: -10, accel: 15, grip: 5,  gauge: 0 },  [0, 1.0, -0.15],  0.55),
+  kart('hover',  'Volt V',   '볼트 V',    'karts/hover',             0, 2.4,  '#b33960', { speed: -5,  accel: 0,  grip: 15, gauge: 0 },  [0, 0.42, -0.1],  0.5,  { hover: true, stripBase: true }),
+  kart('sporty', 'Zoom Z',   '줌 Z',      'karts/sportscar',         0, 2.4,  '#d8e6f2', { speed: 15,  accel: -5, grip: 0,  gauge: 0 },  [0, 0.78, -0.15], 0.58, { stripBase: true }),
+  kart('sedan',  'AE86',     'AE86',      'karts/sedan',             0, 2.4,  '#8fb8c9', { speed: 0,   accel: 0,  grip: 5,  gauge: 5 },  [0, 0.42, -0.15], 0.6),
 ]
 
 export function getKart(id: string): KartDef {

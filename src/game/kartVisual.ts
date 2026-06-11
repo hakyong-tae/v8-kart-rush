@@ -54,10 +54,15 @@ function stripNonIndexed(mesh: THREE.Mesh, whole: THREE.Box3, size: THREE.Vector
   if (keepIdx.length < pos.count) geo.setIndex(keepIdx)
 }
 
+const WHEEL_X = new THREE.Vector3(1, 0, 0)
+const WHEEL_Y = new THREE.Vector3(0, 1, 0)
+const qSpinTmp = new THREE.Quaternion()
+const qSteerTmp = new THREE.Quaternion()
+
 export class KartVisual {
   group = new THREE.Group() // world transform (position + heading)
   body = new THREE.Group() // rolls / pitches inside the group
-  private wheels: { node: THREE.Object3D; front: boolean; radius: number; baseY: number }[] = []
+  private wheels: { node: THREE.Object3D; front: boolean; radius: number }[] = []
   private rider: THREE.Group | null = null
   private hover = false
   private spin = 0
@@ -70,31 +75,57 @@ export class KartVisual {
   constructor(assets: Assets, kartId: string, charId: string) {
     const def = getKart(kartId)
     this.hover = !!def.hover
-    const model = assets.spawn(def.model, 2.4, 'z')
+    const model = assets.spawn(def.model, def.size, 'z')
     if (model) {
       model.rotation.y += def.modelYaw
       this.body.add(model)
-      // remove any baked-in display mat lying on the lowest plane.
       // Geometry is cloned first — spawn() shares geometry between clones.
       model.traverse((o) => {
         const mesh = o as THREE.Mesh
         if (mesh.isMesh) mesh.geometry = mesh.geometry.clone()
       })
-      stripBasePlate(model)
-      // collect wheel nodes (Car Kit ships them as named children)
+      // baked-in display mats only exist on some models — opt-in per kart,
+      // because the same filter can eat low-slung wheels on clean models
+      if (def.stripBase) stripBasePlate(model)
+
+      // Collect TOPMOST wheel nodes and re-pivot each at its own bounding-box
+      // center. Animating a fresh pivot (instead of the node itself) fixes
+      // two classes of breakage: nodes with baked rotations (overwriting
+      // rotation.x tilted them) and axle nodes whose origin isn't the axle.
+      model.updateWorldMatrix(true, true)
+      const modelBox = new THREE.Box3().setFromObject(model)
+      const wheelNodes: THREE.Object3D[] = []
       model.traverse((o) => {
-        if (/wheel|tire|tyre/i.test(o.name)) {
-          const box = new THREE.Box3().setFromObject(o)
-          const size = new THREE.Vector3()
-          box.getSize(size)
-          this.wheels.push({
-            node: o,
-            front: /front/i.test(o.name),
-            radius: Math.max(0.12, size.y / 2),
-            baseY: o.position.y,
-          })
-        }
+        if (!/wheel|tire|tyre/i.test(o.name)) return
+        // road wheels sit in the lower half — excludes steering wheels
+        const c = new THREE.Box3().setFromObject(o).getCenter(new THREE.Vector3())
+        if (c.y < (modelBox.min.y + modelBox.max.y) / 2) wheelNodes.push(o)
       })
+      const isInside = (node: THREE.Object3D, set: THREE.Object3D[]) => {
+        for (let p = node.parent; p; p = p.parent) if (set.includes(p)) return true
+        return false
+      }
+      for (const node of wheelNodes) {
+        if (isInside(node, wheelNodes)) continue // keep only topmost
+        const parent = node.parent!
+        const box = new THREE.Box3().setFromObject(node)
+        const size = new THREE.Vector3()
+        box.getSize(size)
+        const center = box.getCenter(new THREE.Vector3())
+        const pivot = new THREE.Group()
+        parent.add(pivot)
+        pivot.position.copy(parent.worldToLocal(center.clone()))
+        pivot.updateWorldMatrix(true, false)
+        pivot.attach(node) // keeps the node's world transform intact
+        // axle pairs (one node holding both wheels) span the car's width —
+        // they can spin around their center but must never steer-yaw
+        const isAxlePair = size.x > size.y * 2.2
+        this.wheels.push({
+          node: pivot,
+          front: /front/i.test(node.name) && !isAxlePair,
+          radius: Math.max(0.08, size.y / 2),
+        })
+      }
     } else {
       const fallback = new THREE.Mesh(
         new THREE.BoxGeometry(1.4, 0.8, 2.4),
@@ -106,7 +137,8 @@ export class KartVisual {
 
     const rider = makeRider(getCharacter(charId))
     rider.scale.setScalar(def.riderScale)
-    rider.position.set(...def.riderPos)
+    // rider offsets were tuned on a 2.4-long body — scale with the kart size
+    rider.position.set(...def.riderPos).multiplyScalar(def.size / 2.4)
     this.rider = rider
     this.body.add(rider)
 
@@ -175,13 +207,19 @@ export class KartVisual {
    * Call every frame for any kart (player / AI / remote / ghost).
    */
   update(dt: number, speed: number, steer: number, drift: number, airborne: boolean) {
-    // wheels roll with travel and the front axle steers
-    this.spin += (speed / 0.3) * dt
+    // wheels roll with travel and the front axle steers.
+    // Pivots start at identity, so quaternion = steer-yaw x roll-spin is exact.
+    this.spin += speed * dt
     const steerTarget = steer * 0.42
     this.steerVis += (steerTarget - this.steerVis) * Math.min(1, 10 * dt)
     for (const w of this.wheels) {
-      w.node.rotation.x = this.spin * (0.3 / w.radius) * 0.5
-      if (w.front) w.node.rotation.y = this.steerVis
+      qSpinTmp.setFromAxisAngle(WHEEL_X, this.spin / w.radius)
+      if (w.front) {
+        qSteerTmp.setFromAxisAngle(WHEEL_Y, this.steerVis)
+        w.node.quaternion.copy(qSteerTmp).multiply(qSpinTmp)
+      } else {
+        w.node.quaternion.copy(qSpinTmp)
+      }
     }
 
     // body roll into corners (drift leans harder), pitch under accel/brake
