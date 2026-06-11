@@ -19,10 +19,54 @@ export class AudioEngine {
     localStorage.setItem('v8kart_bgmvol', String(this.bgmVol))
   }
 
+  // real CC0 samples (Kenney audio packs) with synth fallback
+  private buffers = new Map<string, AudioBuffer>()
+  private samplesRequested = false
+
+  private loadSamples() {
+    if (this.samplesRequested || !this.ctx) return
+    this.samplesRequested = true
+    const files: Record<string, string> = {
+      pickup: 'sfx/confirmation_001.ogg',
+      gaugeFull: 'sfx/confirmation_002.ogg',
+      click: 'sfx/click_002.ogg',
+      hit: 'sfx/impactGeneric_light_001.ogg',
+      wall: 'sfx/impactMetal_heavy_002.ogg',
+      finish: 'sfx/finish_jingle.ogg',
+    }
+    for (const [name, url] of Object.entries(files)) {
+      fetch(url)
+        .then((r) => r.arrayBuffer())
+        .then((b) => this.ctx!.decodeAudioData(b))
+        .then((buf) => this.buffers.set(name, buf))
+        .catch(() => {}) // fall back to synth
+    }
+  }
+
+  private playSample(name: string, vol = 1, channel: 'sfx' | 'bgm' = 'sfx'): boolean {
+    const buf = this.buffers.get(name)
+    if (!this.ctx || !buf || this.muted) return false
+    const mul = channel === 'bgm' ? this.bgmVol : this.sfxVol
+    if (mul <= 0.001) return true // muted by volume — handled
+    const src = this.ctx.createBufferSource()
+    src.buffer = buf
+    const g = this.ctx.createGain()
+    g.gain.value = vol * mul
+    src.connect(g)
+    g.connect(this.ctx.destination)
+    src.start()
+    return true
+  }
+
+  uiClick() {
+    if (!this.playSample('click', 0.5)) this.blip(500, 0.05, 'square', 0.05)
+  }
+
   ensure() {
     if (this.ctx) return
     try {
       this.ctx = new AudioContext()
+      this.loadSamples()
       const g = this.ctx.createGain()
       g.gain.value = 0
       const f = this.ctx.createBiquadFilter()
@@ -97,6 +141,7 @@ export class AudioEngine {
     this.blip(final ? 880 : 440, final ? 0.5 : 0.18, 'square', 0.1)
   }
   gaugeFull() {
+    if (this.playSample('gaugeFull', 0.6)) return
     this.blip(784, 0.09, 'square', 0.12)
     setTimeout(() => this.blip(1175, 0.18, 'square', 0.12), 90)
   }
@@ -104,10 +149,10 @@ export class AudioEngine {
     this.blip(180, 0.7, 'sawtooth', 0.14, 1320)
   }
   wallBump() {
-    this.blip(110, 0.16, 'square', 0.14, 70)
+    if (!this.playSample('wall', 0.4)) this.blip(110, 0.16, 'square', 0.14, 70)
   }
   pickup() {
-    this.blip(660, 0.1, 'triangle', 0.12, 990)
+    if (!this.playSample('pickup', 0.55)) this.blip(660, 0.1, 'triangle', 0.12, 990)
   }
   boost() {
     this.blip(220, 0.45, 'sawtooth', 0.1, 880)
@@ -116,7 +161,8 @@ export class AudioEngine {
     this.blip(tier >= 2 ? 1320 : 990, 0.08, 'square', 0.06)
   }
   hit() {
-    this.blip(160, 0.4, 'sawtooth', 0.16, 60)
+    this.playSample('hit', 0.85)
+    this.blip(160, 0.4, 'sawtooth', 0.1, 60) // layered thud
   }
   fire() {
     this.blip(520, 0.25, 'square', 0.1, 130)
@@ -127,6 +173,7 @@ export class AudioEngine {
     setTimeout(() => this.blip(784, 0.2, 'triangle', 0.12), 220)
   }
   finish() {
+    if (this.playSample('finish', 0.8, 'bgm')) return
     const notes = [523, 659, 784, 1047]
     notes.forEach((n, i) => setTimeout(() => this.blip(n, 0.22, 'triangle', 0.13), i * 140))
   }

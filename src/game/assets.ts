@@ -34,47 +34,102 @@ const MODEL_NAMES = [
 
 export type ModelName = (typeof MODEL_NAMES)[number]
 
+// Per-course scenery model sets (loaded on demand before a race).
+// Subfolders matter: each Kenney kit ships its own Textures/colormap.png.
+export const SCENERY_MODELS: Record<string, string[]> = {
+  sunny: [
+    'nature/tree_default', 'nature/tree_detailed', 'nature/tree_oak', 'nature/tree_fat',
+    'nature/tree_pineRoundA', 'nature/plant_bushLarge', 'nature/plant_bushDetailed',
+    'nature/flower_redA', 'nature/flower_yellowA', 'nature/rock_smallA', 'nature/rock_smallE',
+    'nature/mushroom_redGroup', 'nature/grass_large',
+  ],
+  canyon: [
+    'nature/rock_tallA', 'nature/rock_tallD', 'nature/rock_tallG', 'nature/rock_largeA',
+    'nature/rock_largeD', 'nature/cactus_short', 'nature/cactus_tall', 'nature/rock_smallA',
+    'nature/rock_smallE',
+  ],
+  ice: [
+    'holiday/tree-snow-a', 'holiday/tree-snow-b', 'holiday/tree-snow-c',
+    'holiday/tree-decorated-snow', 'holiday/snowman', 'holiday/snow-pile',
+    'holiday/candy-cane-red', 'holiday/candy-cane-green', 'nature/rock_smallA',
+  ],
+  beach: [
+    'pirate/palm-detailed-bend', 'pirate/palm-detailed-straight', 'pirate/palm-bend',
+    'pirate/palm-straight', 'pirate/rocks-sand-a', 'pirate/rocks-sand-b', 'pirate/rocks-sand-c',
+    'pirate/ship-pirate-medium', 'pirate/boat-row-large',
+  ],
+  neon: [
+    'city/building-a', 'city/building-c', 'city/building-e', 'city/building-g',
+    'city/building-i', 'city/building-k', 'city/building-n',
+    'city/building-skyscraper-a', 'city/building-skyscraper-c', 'city/building-skyscraper-e',
+  ],
+}
+
 export class Assets {
   models = new Map<string, THREE.Group>()
   private loadPromise: Promise<void> | null = null
+  private pending = new Map<string, Promise<void>>()
 
   load(onProgress?: (frac: number) => void): Promise<void> {
     if (!this.loadPromise) this.loadPromise = this.doLoad(onProgress)
     return this.loadPromise
   }
 
+  private loadOne(loader: GLTFLoader, name: string): Promise<void> {
+    if (this.models.has(name)) return Promise.resolve()
+    const existing = this.pending.get(name)
+    if (existing) return existing
+    const p = new Promise<void>((resolve) => {
+      loader.load(
+        `models/${name}.glb`,
+        (gltf) => {
+          const g = gltf.scene
+          g.traverse((o) => {
+            if ((o as THREE.Mesh).isMesh) {
+              const m = o as THREE.Mesh
+              m.castShadow = false
+              m.receiveShadow = false
+              // old Kenney exports default to metallic=1 which renders black
+              // without an environment map — force dielectric
+              const mats = Array.isArray(m.material) ? m.material : [m.material]
+              for (const mat of mats) {
+                const std = mat as THREE.MeshStandardMaterial
+                if (std.isMeshStandardMaterial) {
+                  std.metalness = 0
+                  std.roughness = Math.max(std.roughness, 0.85)
+                }
+              }
+            }
+          })
+          this.models.set(name, g)
+          resolve()
+        },
+        undefined,
+        (err) => {
+          console.warn(`failed to load model ${name}`, err)
+          resolve() // missing models degrade gracefully
+        },
+      )
+    })
+    this.pending.set(name, p)
+    return p
+  }
+
+  /** Load an extra model set on demand (per-course scenery). */
+  async loadSet(names: string[]): Promise<void> {
+    const loader = new GLTFLoader()
+    await Promise.all(names.map((n) => this.loadOne(loader, n)))
+  }
+
   private async doLoad(onProgress?: (frac: number) => void): Promise<void> {
     const loader = new GLTFLoader()
     let done = 0
     await Promise.all(
-      MODEL_NAMES.map(
-        (name) =>
-          new Promise<void>((resolve) => {
-            loader.load(
-              `models/${name}.glb`,
-              (gltf) => {
-                const g = gltf.scene
-                g.traverse((o) => {
-                  if ((o as THREE.Mesh).isMesh) {
-                    const m = o as THREE.Mesh
-                    m.castShadow = false
-                    m.receiveShadow = false
-                  }
-                })
-                this.models.set(name, g)
-                done++
-                onProgress?.(done / MODEL_NAMES.length)
-                resolve()
-              },
-              undefined,
-              (err) => {
-                console.warn(`failed to load model ${name}`, err)
-                done++
-                onProgress?.(done / MODEL_NAMES.length)
-                resolve() // missing models degrade gracefully
-              },
-            )
-          }),
+      MODEL_NAMES.map((name) =>
+        this.loadOne(loader, name).then(() => {
+          done++
+          onProgress?.(done / MODEL_NAMES.length)
+        }),
       ),
     )
   }
@@ -332,7 +387,8 @@ export function makeBuoy(): THREE.Group {
 export function makeClouds(seed: number): THREE.Group {
   const g = new THREE.Group()
   const rand = rng(seed * 7 + 3)
-  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff })
+  // MeshBasic: clouds stay white instead of picking up green hemisphere bounce
+  const mat = new THREE.MeshBasicMaterial({ color: 0xf4f8ff })
   for (let i = 0; i < 12; i++) {
     const cloud = new THREE.Group()
     const puffs = 3 + Math.floor(rand() * 3)
@@ -414,7 +470,36 @@ export function buildDecorations(track: Track, assets: Assets): THREE.Group {
     }
   }
 
-  // Open island maps (beach): buoys mark the boundary, palms & umbrellas on the sand
+  // Generic scatter helper: drop models in a lateral band, avoiding the road.
+  const scatter = (
+    names: string[],
+    size: [number, number],
+    count: number,
+    latMin: number,
+    latMax: number,
+    y = 0,
+  ) => {
+    for (let k = 0; k < count; k++) {
+      const idx = Math.floor(rand() * N)
+      const side = rand() < 0.5 ? 1 : -1
+      const lat = side * (latMin + rand() * (latMax - latMin))
+      const s = track.sampleAt(idx)
+      const p = new THREE.Vector3(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
+      const nearIdx = track.nearestIndex(p)
+      if (Math.abs(track.lateral(p, nearIdx)) < hw + 3.5) continue // never on the road
+      const obj = assets.spawn(
+        names[Math.floor(rand() * names.length)],
+        size[0] + rand() * (size[1] - size[0]),
+      )
+      if (!obj) continue
+      obj.position.set(p.x, y, p.z)
+      obj.rotation.y = rand() * Math.PI * 2
+      group.add(obj)
+    }
+  }
+
+  // Open island maps (beach): buoys mark the boundary; pirate-kit palms,
+  // sand rocks, beached boats and ships anchored offshore.
   if (track.course.open) {
     for (let k = 0; k < 50; k++) {
       const idx = Math.floor((k / 50) * N)
@@ -429,19 +514,52 @@ export function buildDecorations(track: Track, assets: Assets): THREE.Group {
         group.add(buoy)
       }
     }
-    for (let k = 0; k < 60; k++) {
+    scatter(
+      ['pirate/palm-detailed-bend', 'pirate/palm-detailed-straight', 'pirate/palm-bend', 'pirate/palm-straight'],
+      [7, 10],
+      48,
+      hw + 5,
+      wall - 3,
+    )
+    scatter(['pirate/rocks-sand-a', 'pirate/rocks-sand-b', 'pirate/rocks-sand-c'], [1.5, 3.2], 18, hw + 4, wall - 2)
+    // umbrellas keep the beach lively
+    for (let k = 0; k < 14; k++) {
       const idx = Math.floor(rand() * N)
       const side = rand() < 0.5 ? 1 : -1
-      const lat = side * (hw + 5 + rand() * (wall - hw - 8))
+      const lat = side * (hw + 6 + rand() * (wall - hw - 10))
       const s = track.sampleAt(idx)
       const p = new THREE.Vector3(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
-      // keep clear of the road itself
-      const nearIdx = track.nearestIndex(p)
-      if (Math.abs(track.lateral(p, nearIdx)) < hw + 4) continue
-      const obj = rand() < 0.65 ? makePalm(rand) : makeUmbrella(rand)
+      if (Math.abs(track.lateral(p, track.nearestIndex(p))) < hw + 4) continue
+      const obj = makeUmbrella(rand)
       obj.position.set(p.x, 0, p.z)
       obj.rotation.y = rand() * Math.PI * 2
       group.add(obj)
+    }
+    // pirate ships anchored out in the water + beached rowing boats
+    for (let k = 0; k < 2; k++) {
+      const ship = assets.spawn('pirate/ship-pirate-medium', 16, 'z')
+      if (!ship) continue
+      const idx = Math.floor(((k + 0.3) / 2) * N)
+      const side = k % 2 === 0 ? 1 : -1
+      const s = track.sampleAt(idx)
+      ship.position.set(
+        s.pos.x + s.nor.x * side * (wall + 26),
+        -1.2,
+        s.pos.z + s.nor.z * side * (wall + 26),
+      )
+      ship.rotation.y = rand() * Math.PI * 2
+      group.add(ship)
+    }
+    for (let k = 0; k < 3; k++) {
+      const boat = assets.spawn('pirate/boat-row-large', 4.5, 'z')
+      if (!boat) continue
+      const idx = Math.floor(rand() * N)
+      const side = rand() < 0.5 ? 1 : -1
+      const s = track.sampleAt(idx)
+      const lat = side * (wall - 4)
+      boat.position.set(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
+      boat.rotation.y = rand() * Math.PI * 2
+      group.add(boat)
     }
     return group
   }
@@ -475,26 +593,88 @@ export function buildDecorations(track: Track, assets: Assets): THREE.Group {
     }
   }
 
-  // Trees scattered around (avoid the road)
-  const isNearRoad = (p: THREE.Vector3) => {
-    const idx = track.nearestIndex(p)
-    return Math.abs(track.lateral(p, idx)) < hw + 7
-  }
-  const treeCount = 70
-  for (let k = 0; k < treeCount; k++) {
-    const idx = Math.floor(rand() * N)
-    const side = rand() < 0.5 ? 1 : -1
-    const lat = side * (hw + 10 + rand() * 50)
-    const s = track.sampleAt(idx)
-    const p = new THREE.Vector3(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
-    if (isNearRoad(p)) continue
-    const tree = assets.spawn(rand() < 0.4 ? 'treeLarge' : 'treeSmall', rand() < 0.4 ? 7 : 4.5)
-    if (tree) {
-      tree.position.x += p.x
-      tree.position.z += p.z
-      tree.rotation.y = rand() * Math.PI * 2
-      group.add(tree)
+  // Per-course scenery (premium Kenney kits — see SCENERY_MODELS)
+  switch (track.course.id) {
+    case 'sunny':
+      scatter(
+        ['nature/tree_default', 'nature/tree_detailed', 'nature/tree_oak', 'nature/tree_fat', 'nature/tree_pineRoundA'],
+        [5.5, 9],
+        55,
+        wall + 4,
+        wall + 55,
+      )
+      scatter(['nature/plant_bushLarge', 'nature/plant_bushDetailed'], [1.6, 2.6], 24, wall + 2, wall + 22)
+      scatter(['nature/flower_redA', 'nature/flower_yellowA'], [0.9, 1.3], 36, wall + 1.5, wall + 12)
+      scatter(['nature/rock_smallA', 'nature/rock_smallE'], [1, 1.8], 12, wall + 3, wall + 30)
+      scatter(['nature/mushroom_redGroup'], [0.9, 1.4], 8, wall + 2, wall + 16)
+      scatter(['nature/grass_large'], [0.8, 1.2], 30, wall + 1.5, wall + 18)
+      break
+    case 'canyon':
+      // mesa country: towering rock formations + cacti
+      scatter(['nature/rock_tallA', 'nature/rock_tallD', 'nature/rock_tallG'], [9, 18], 26, wall + 8, wall + 55)
+      scatter(['nature/rock_largeA', 'nature/rock_largeD'], [4, 7], 16, wall + 4, wall + 35)
+      scatter(['nature/cactus_short', 'nature/cactus_tall'], [2, 3.6], 22, wall + 2, wall + 28)
+      scatter(['nature/rock_smallA', 'nature/rock_smallE'], [1, 2], 16, wall + 2, wall + 20)
+      break
+    case 'ice':
+      scatter(['holiday/tree-snow-a', 'holiday/tree-snow-b', 'holiday/tree-snow-c'], [5.5, 9], 52, wall + 3, wall + 50)
+      scatter(['holiday/snow-pile'], [1.2, 2.4], 16, wall + 2, wall + 24)
+      scatter(['nature/rock_smallA'], [1, 1.8], 10, wall + 3, wall + 26)
+      // friendly faces near the road
+      scatter(['holiday/snowman'], [2, 2.4], 8, wall + 1.5, wall + 7)
+      scatter(['holiday/tree-decorated-snow'], [5.5, 6.5], 6, wall + 2, wall + 10)
+      // candy-cane posts alternating along the track
+      for (let k = 0; k < 18; k++) {
+        const idx = Math.floor((k / 18) * N)
+        const side = k % 2 === 0 ? 1 : -1
+        const cane = assets.spawn(k % 4 < 2 ? 'holiday/candy-cane-red' : 'holiday/candy-cane-green', 2.4)
+        if (!cane) continue
+        const s = track.sampleAt(idx)
+        const lat = side * (wall + 1.3)
+        cane.position.set(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
+        cane.rotation.y = rand() * Math.PI * 2
+        group.add(cane)
+      }
+      break
+    case 'neon': {
+      // city skyline ringing the night course
+      const skyline = [
+        'city/building-a', 'city/building-c', 'city/building-e', 'city/building-g',
+        'city/building-i', 'city/building-k', 'city/building-n',
+        'city/building-skyscraper-a', 'city/building-skyscraper-c', 'city/building-skyscraper-e',
+      ]
+      for (let k = 0; k < 30; k++) {
+        const idx = Math.floor((k / 30) * N + rand() * 14)
+        const side = k % 2 === 0 ? 1 : -1
+        const name = skyline[Math.floor(rand() * skyline.length)]
+        const tall = name.includes('skyscraper')
+        const b = assets.spawn(name, tall ? 22 + rand() * 18 : 9 + rand() * 7)
+        if (!b) continue
+        const s = track.sampleAt(idx)
+        const lat = side * (wall + 10 + rand() * 22)
+        const p = new THREE.Vector3(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
+        if (Math.abs(track.lateral(p, track.nearestIndex(p))) < hw + 8) continue
+        b.position.set(p.x, 0, p.z)
+        b.rotation.y = Math.atan2(-s.nor.x * side, -s.nor.z * side)
+        // night city: make the windows glow
+        b.traverse((o) => {
+          const mesh = o as THREE.Mesh
+          if (!mesh.isMesh) return
+          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+          for (const m of mats) {
+            const std = m as THREE.MeshStandardMaterial
+            if (std.isMeshStandardMaterial && std.map) {
+              std.emissiveMap = std.map
+              std.emissive.setHex(0x9a93b8)
+            }
+          }
+        })
+        group.add(b)
+      }
+      break
     }
+    default:
+      scatter(['treeLarge', 'treeSmall'], [4.5, 7], 50, wall + 4, wall + 50)
   }
 
   return group

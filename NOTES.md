@@ -128,9 +128,21 @@ npx -y @agent8/deploy    # Verse8 계정 인증 필요
 - `getTopGhost(courseId)`: 글로벌 1위의 고스트 + 카트/캐릭터 조합을 반투명 모델로 재생
 - 주의: GLB 텍스처(`Textures/colormap.png`)는 외부 참조라 public/models/Textures/에 함께 배포
 
+## 폴리싱 패스 (프리미엄 CC0 에셋)
+
+- **코스별 풍경**: 써니=Nature Kit(나무 5종/덤불/꽃/버섯/바위), 캐니언=메사 바위기둥+선인장, 아이스=Holiday Kit(눈나무/장식트리/눈사람/캔디케인 포스트), 비치=Pirate Kit(야자수 4종/모래바위/해적선/보트), 네온=City Kit 빌딩 스카이라인(창문 emissive 발광)
+- 풍경 모델은 `SCENERY_MODELS`(assets.ts)로 **코스 진입 시 lazy load** — 키트별 서브폴더 필수(각자 Textures/colormap.png)
+- **주의**: 구버전 Kenney GLTF는 metallic=1 기본 → envmap 없으면 검정. 로더에서 `metalness=0` 강제함
+- **파티클**(particles.ts, Kenney Particle Pack): 드리프트 스모크(티어 색), 부스터 화염, 착지 먼지, 오프로드 흙, 폭탄 폭발(화염+연기), 게이지 풀차지 스타버스트, 입수 물보라
+- **오디오 샘플**(public/sfx/, 신스 폴백): 픽업/게이지/피격/벽충돌/완주 징글/UI 클릭(전 버튼 공통)
+- **폰트**: Bangers + Jua (OFL, public/fonts/) — 로고/카운트다운/속도계/랭크/기록 표시
+- 부스트 패드는 셰브론 줄무늬 스타일(시안 명암 교차), 구름은 MeshBasic(반구광 초록물 방지)
+
 ## 에셋 라이선스
 
-- `public/models/` — Kenney Racing Kit 2.0 + Car Kit 3.1, **CC0** (퍼블릭 도메인). 라이선스 파일 동봉
+- `public/models/` — Kenney Racing Kit 2.0 + Car Kit 3.1 + Nature/Holiday/Pirate/City Kit, **CC0**. 라이선스 파일 폴더별 동봉
+- `public/fx/`, `public/sfx/` — Kenney Particle Pack / Interface·Impact Sounds / Music Jingles, **CC0**
+- `public/fonts/` — Bangers, Jua (**SIL OFL**)
 - 사운드 — WebAudio 신디사이저로 런타임 합성 (에셋 파일 없음)
 - 닌텐도/마리오카트 에셋 일절 미사용 (상표·저작권 리스크 차단)
 

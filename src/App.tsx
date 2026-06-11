@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { COURSES, getCourse } from './game/courses'
 import { KARTS, CHARACTERS, getKart } from './game/roster'
 import { Track } from './game/track'
-import { Assets } from './game/assets'
+import { Assets, SCENERY_MODELS } from './game/assets'
 import { Game, type HudSnapshot, type GhostData, type Placement } from './game/Game'
 import { Hud } from './ui/Hud'
 import { ComboPreview } from './ui/ComboPreview'
@@ -53,12 +53,18 @@ export default function App() {
 
   useEffect(() => {
     net.init().then(setNetStatus)
+    // satisfying button clicks everywhere
+    const onClick = (e: MouseEvent) => {
+      if ((e.target as HTMLElement)?.closest?.('button')) audio.uiClick()
+    }
+    document.addEventListener('click', onClick)
     if (!assetsLoaded) {
       assets.load().then(() => {
         assetsLoaded = true
         setReady(true)
       })
     } else setReady(true)
+    return () => document.removeEventListener('click', onClick)
   }, [])
 
   if (!ready)
@@ -523,8 +529,12 @@ function GameScreen({
     const canvas = canvasRef.current!
     let cancelled = false
     let game: Game | null = null
-    // assets.load() is idempotent — guarantees models exist even across HMR reloads
-    assets.load().then(() => {
+    // assets.load() is idempotent — guarantees models exist even across HMR reloads.
+    // Course scenery sets are loaded on demand right before the race.
+    assets
+      .load()
+      .then(() => assets.loadSet(SCENERY_MODELS[screen.courseId] ?? []))
+      .then(() => {
       if (cancelled) return
       game = new Game(canvas, assets, {
         courseId: screen.courseId,

@@ -1,3 +1,16 @@
+/* display fonts (OFL — see public/fonts/) */
+@font-face {
+  font-family: 'Bangers';
+  src: url('/fonts/Bangers-Regular.ttf') format('truetype');
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Jua';
+  src: url('/fonts/Jua-Regular.ttf') format('truetype');
+  font-display: swap;
+}
+
 * {
   box-sizing: border-box;
   margin: 0;
@@ -37,8 +50,10 @@ body {
 }
 
 .logo {
-  font-size: 56px;
-  font-weight: 900;
+  font-family: 'Bangers', 'Jua', system-ui, sans-serif;
+  font-size: 64px;
+  font-weight: 400;
+  letter-spacing: 4px;
   font-style: italic;
   letter-spacing: 2px;
   text-shadow: 0 4px 0 #c0392b, 0 8px 24px rgba(0, 0, 0, 0.6);
@@ -551,8 +566,9 @@ body {
 }
 
 .hud-rank {
-  font-size: 38px;
-  font-weight: 900;
+  font-family: 'Bangers', system-ui, sans-serif;
+  font-size: 42px;
+  font-weight: 400;
   font-style: italic;
   color: #ffe14d;
 }
@@ -687,7 +703,10 @@ body {
 }
 
 .hud-speed b {
-  font-size: 40px;
+  font-family: 'Bangers', system-ui, sans-serif;
+  font-size: 44px;
+  font-weight: 400;
+  letter-spacing: 2px;
   font-style: italic;
 }
 
@@ -856,8 +875,10 @@ body {
   left: 0;
   right: 0;
   text-align: center;
+  font-family: 'Bangers', 'Jua', system-ui, sans-serif;
   font-size: 110px;
-  font-weight: 900;
+  font-weight: 400;
+  letter-spacing: 4px;
   font-style: italic;
   text-shadow: 0 6px 0 rgba(0, 0, 0, 0.45);
 }
@@ -919,8 +940,10 @@ body {
 }
 
 .big-time {
-  font-size: 46px;
-  font-weight: 900;
+  font-family: 'Bangers', system-ui, sans-serif;
+  font-size: 52px;
+  letter-spacing: 2px;
+  font-weight: 400;
   font-variant-numeric: tabular-nums;
   color: #9fe8ff;
 }
@@ -999,8 +1022,10 @@ body {
 }
 
 .team-banner {
-  font-size: 22px;
-  font-weight: 900;
+  font-family: 'Bangers', 'Jua', system-ui, sans-serif;
+  font-size: 26px;
+  letter-spacing: 2px;
+  font-weight: 400;
   color: #ffe14d;
 }
 

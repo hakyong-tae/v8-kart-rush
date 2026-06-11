@@ -10,6 +10,7 @@ import { audio } from './audio'
 import { net, type PosMsg, type ItemMsg, type PlayerInfo } from '../net/net'
 import { getLang } from '../i18n'
 import { ADS, makeAdBalloon, AD_LAYER } from './ads'
+import { Particles } from './particles'
 
 // Car Kit vehicles natively face +Z (front wheels at +z) — same as our heading axis.
 const KART_MODEL_YAW = 0
@@ -224,6 +225,12 @@ export class Game {
     bob: number
   }[] = []
 
+  // particle VFX
+  private particles = new Particles()
+  private smokeAcc = 0
+  private flameAcc = 0
+  private dirtAcc = 0
+
   // cloud rescuer (구름이)
   private rescuer: THREE.Group
   private rescue: {
@@ -337,7 +344,9 @@ export class Game {
 
     // items only in item mode
     this.items = new ItemManager(this.track, opts.raceMode === 'item')
+    this.items.onExplode = (pos) => this.particles.explosion(pos)
     this.scene.add(this.items.group)
+    this.scene.add(this.particles.group)
 
     // cloud rescuer (hidden until needed)
     this.rescuer = makeRescuer()
@@ -811,9 +820,17 @@ export class Game {
         )
         if (ev.driftStarted) audio.driftTick(0)
         if (ev.driftReleased === 1 || ev.driftReleased === 2) audio.boost()
-        if (ev.gaugeFilled) audio.gaugeFull()
+        if (ev.gaugeFilled) {
+          audio.gaugeFull()
+          this.particles.gaugeBurst(this.kart.pos)
+        }
         if (ev.wallBumped) audio.wallBump()
-        if (ev.fell) this.startRescue()
+        if (ev.landed) this.particles.landingDust(this.kart.pos)
+        if (ev.fell) {
+          if (this.course.open && this.course.ocean)
+            this.particles.splash(this.kart.pos.clone().setY(0))
+          this.startRescue()
+        }
         if (ev.lapCrossed && this.phase === 'racing' && !this.kart.finished) {
           if (this.kart.cpTotal > 1) {
             const lapMs = now - this.lapStart
@@ -1034,6 +1051,59 @@ export class Game {
       if (ai.kart.spinT > 0) yaw += ai.kart.spinT * 12
       ai.group.rotation.y = yaw
     }
+
+    // continuous particle emitters: drift smoke, booster flames, offroad dust
+    {
+      const k = this.kart
+      const fwdX = Math.sin(k.heading)
+      const fwdZ = Math.cos(k.heading)
+      const sideX = Math.cos(k.heading)
+      const sideZ = -Math.sin(k.heading)
+      if (k.driftDir !== 0 && k.y < 0.1) {
+        this.smokeAcc += dt
+        while (this.smokeAcc > 0.035) {
+          this.smokeAcc -= 0.035
+          for (const s of [-0.7, 0.7]) {
+            this.particles.driftSmoke(
+              new THREE.Vector3(
+                k.pos.x - fwdX * 1.1 + sideX * s,
+                0.2,
+                k.pos.z - fwdZ * 1.1 + sideZ * s,
+              ),
+              k.driftTier,
+            )
+          }
+        }
+      } else this.smokeAcc = 0
+      if (k.boostT > 0 || k.boosterT > 0) {
+        this.flameAcc += dt
+        while (this.flameAcc > 0.03) {
+          this.flameAcc -= 0.03
+          this.particles.boostFlame(
+            new THREE.Vector3(k.pos.x - fwdX * 1.7, k.y + 0.55, k.pos.z - fwdZ * 1.7),
+            k.boosterT > 0,
+          )
+        }
+      } else this.flameAcc = 0
+      if (k.offroad && Math.abs(k.speed) > 11 && k.y < 0.1) {
+        this.dirtAcc += dt
+        while (this.dirtAcc > 0.09) {
+          this.dirtAcc -= 0.09
+          this.particles.emit({
+            tex: 'dirt',
+            pos: new THREE.Vector3(k.pos.x - fwdX * 1.2, 0.15, k.pos.z - fwdZ * 1.2),
+            vel: new THREE.Vector3((Math.random() - 0.5) * 2, 1.5, (Math.random() - 0.5) * 2),
+            life: 0.45,
+            scale: 0.6,
+            endScale: 1.6,
+            color: this.course.id === 'ice' ? 0xeaf6ff : 0xd9c49a,
+            opacity: 0.5,
+            gravity: -4,
+          })
+        }
+      } else this.dirtAcc = 0
+    }
+    this.particles.update(dt)
 
     // ad balloons drift slowly around the sky; banners billboard toward the player
     for (const b of this.balloons) {
@@ -1369,6 +1439,7 @@ export class Game {
     audio.stopEngine()
     audio.stopMusic()
     this.items.dispose()
+    this.particles.dispose()
     this.renderer.dispose()
   }
 }

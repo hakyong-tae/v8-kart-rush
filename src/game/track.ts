@@ -449,20 +449,25 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
     group.add(mesh)
   }
 
-  // Boost pads (emissive chevron strips, animated via material color pulse)
+  // Boost pads — striped chevron strips (bright/deep cyan bands)
   const boostPadMats: THREE.MeshBasicMaterial[] = []
   for (const pad of course.boostPads) {
     const i0 = Math.floor(pad.t * track.N)
     const i1 = Math.floor((pad.t + pad.len) * track.N)
-    const mat = new THREE.MeshBasicMaterial({ color: 0x27e0ff })
+    const mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.92 })
     boostPadMats.push(mat)
+    const bright = new THREE.Color(0x35e6ff)
+    const deep = new THREE.Color(0x0d5e8c)
     const positions: number[] = []
+    const colors: number[] = []
     const indices: number[] = []
     for (let i = i0; i <= i1; i++) {
       const s = track.sampleAt(i)
-      const w = hw * 0.85
+      const w = hw * 0.55
       positions.push(s.pos.x - s.nor.x * w, 0.03, s.pos.z - s.nor.z * w)
       positions.push(s.pos.x + s.nor.x * w, 0.03, s.pos.z + s.nor.z * w)
+      const c = Math.floor((i - i0) / 3) % 2 === 0 ? bright : deep
+      colors.push(c.r, c.g, c.b, c.r, c.g, c.b)
       if (i < i1) {
         const a = (i - i0) * 2
         indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3)
@@ -470,6 +475,7 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
     }
     const geo = new THREE.BufferGeometry()
     geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
     geo.setIndex(indices)
     group.add(new THREE.Mesh(geo, mat))
   }

@@ -69,6 +69,8 @@ const BOMB_FUSE = 2.2
 const BOMB_RADIUS = 4.5
 
 export class ItemManager {
+  /** optional VFX hook — the game attaches the particle system here */
+  onExplode?: (pos: THREE.Vector3) => void
   boxes: ItemBox[] = []
   bananas = new Map<string, Banana>()
   bombs = new Map<string, Bomb>()
@@ -160,6 +162,7 @@ export class ItemManager {
   }
 
   private explode(pos: THREE.Vector3, bombId: string, actors: ItemActor[], cb: ItemCallbacks) {
+    this.onExplode?.(pos)
     const mesh = new THREE.Mesh(
       new THREE.SphereGeometry(1, 14, 10),
       new THREE.MeshBasicMaterial({ color: 0xff9a33, transparent: true, opacity: 0.85 }),
