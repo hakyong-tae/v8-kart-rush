@@ -14,6 +14,7 @@ import { Particles } from './particles'
 import { KartVisual } from './kartVisual'
 import { preset } from './perf'
 import { GimmickManager } from './gimmicks'
+import { AmbientFX } from './ambient'
 
 // Car Kit vehicles natively face +Z (front wheels at +z) — same as our heading axis.
 
@@ -242,6 +243,7 @@ export class Game {
   private disposed = false
   private padCooldown = new Map<string, number>()
   private gimmicks!: GimmickManager
+  private ambient!: AmbientFX
   private boostFlame: THREE.Mesh
   private sparkL: THREE.Mesh
   private sparkR: THREE.Mesh
@@ -275,6 +277,8 @@ export class Game {
     this.scene.add(group)
     this.gimmicks = new GimmickManager(this.track, ocean)
     this.scene.add(this.gimmicks.group)
+    this.ambient = new AmbientFX(this.course.id)
+    if (this.ambient.points) this.scene.add(this.ambient.points)
     this.scene.add(buildDecorations(this.track, this.assets))
     if (!theme.night) this.scene.add(makeClouds(this.course.decorSeed))
 
@@ -1149,6 +1153,7 @@ export class Game {
     this.updateKartVisual(now, dt)
     this.updateCamera(dt)
     this.gimmicks.updateVisuals(raceSec, this.camera.position)
+    this.ambient.update(dt, this.camera.position)
     audio.setEngine(this.kart.speed, 27, this.input.state.throttle)
     this.renderer.render(this.scene, this.camera)
 
