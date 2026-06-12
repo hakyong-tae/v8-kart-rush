@@ -68,11 +68,16 @@ interface SpinbarRT { def: Extract<GimmickDef, { type: 'spinbar' }>; pivot: THRE
 interface TeleportRT { def: Extract<GimmickDef, { type: 'teleport' }>; gateIn: THREE.Mesh; gateOut: THREE.Mesh }
 interface RockfallRT { def: Extract<GimmickDef, { type: 'rockfall' }>; rock: THREE.Mesh; shadow: THREE.Mesh; impact: THREE.Vector3 }
 interface TideRT { def: Extract<GimmickDef, { type: 'tide' }> }
+interface SinkroadRT { def: Extract<GimmickDef, { type: 'sinkroad' }>; mesh: THREE.Mesh; mat: THREE.MeshLambertMaterial; i0: number; i1: number }
+interface GeyserRT { def: Extract<GimmickDef, { type: 'geyser' }>; column: THREE.Mesh; bubble: THREE.Mesh; center: THREE.Vector3 }
+interface HammerRT { def: Extract<GimmickDef, { type: 'hammer' }>; pivot: THREE.Group; center: THREE.Vector3; tanAxis: THREE.Vector3; norDir: THREE.Vector3 }
+interface PressRT { def: Extract<GimmickDef, { type: 'press' }>; plate: THREE.Mesh; center: THREE.Vector3 }
 
 export interface GimmickHit {
-  spun: boolean // 스핀 당함 (회전바/낙석)
+  spun: boolean // 스핀 당함 (회전바/낙석/해머/프레스)
   bounced: boolean // 범퍼에 튕김
   teleported: boolean
+  launched: boolean // 간헐천에 발사됨
   smashedCrate: THREE.Vector3 | null // 상자 파괴 위치 (파티클용)
 }
 
@@ -90,7 +95,12 @@ export class GimmickManager {
   private teleports: TeleportRT[] = []
   private rockfalls: RockfallRT[] = []
   private tide: TideRT | null = null
+  private sinkroads: SinkroadRT[] = []
+  private geysers: GeyserRT[] = []
+  private hammers: HammerRT[] = []
+  private presses: PressRT[] = []
   private cooldown = new Map<string, number>() // `${actor}:${i}` → raceSec until
+  private raceSecNow = 0 // track.dynamicPitFn이 읽는 현재 시각 (매 프레임 갱신)
 
   constructor(
     private track: Track,
@@ -218,6 +228,109 @@ export class GimmickManager {
           })
           break
         }
+        case 'sinkroad': {
+          const i0 = Math.floor(def.t0 * track.N)
+          const i1 = Math.floor(def.t1 * track.N)
+          // 돌다리 strip (도로보다 살짝 어두운 현무암 판) — 베이스 도로는 track이 절개해 둠
+          const mat = new THREE.MeshLambertMaterial({ color: 0x6e6258 })
+          const positions: number[] = []
+          const indices: number[] = []
+          for (let k = i0; k <= i1; k++) {
+            const s = track.sampleAt(k)
+            const w = hw + 1.0
+            positions.push(s.pos.x - s.nor.x * w, 0, s.pos.z - s.nor.z * w)
+            positions.push(s.pos.x + s.nor.x * w, 0, s.pos.z + s.nor.z * w)
+            if (k < i1) {
+              const a = (k - i0) * 2
+              indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3)
+            }
+          }
+          const geo = new THREE.BufferGeometry()
+          geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+          geo.setIndex(indices)
+          geo.computeVertexNormals()
+          const mesh = new THREE.Mesh(geo, mat)
+          this.group.add(mesh)
+          // 아래 용암/물 바닥
+          const mid = track.sampleAt(Math.floor((i0 + i1) / 2))
+          const span = ((i1 - i0) / track.N) * track.totalLength + 30
+          const floor = new THREE.Mesh(
+            new THREE.PlaneGeometry(span, span),
+            new THREE.MeshBasicMaterial({ color: def.floor ?? 0xff5a26 }),
+          )
+          floor.rotation.x = -Math.PI / 2
+          floor.position.set(mid.pos.x, -7.5, mid.pos.z)
+          this.group.add(floor)
+          this.sinkroads.push({ def, mesh, mat, i0, i1 })
+          break
+        }
+        case 'geyser': {
+          const center = track.worldAt(def.t, def.lane * hw)
+          const column = new THREE.Mesh(
+            new THREE.CylinderGeometry(1.0, 1.3, 7, 10, 1, true),
+            new THREE.MeshLambertMaterial({ color: 0xeaf6ff, transparent: true, opacity: 0.65 }),
+          )
+          column.position.set(center.x, 0, center.z)
+          column.scale.y = 0.001
+          column.visible = false
+          const bubble = new THREE.Mesh(
+            new THREE.CircleGeometry(1.3, 14),
+            new THREE.MeshBasicMaterial({ color: 0xbfe8ff, transparent: true, opacity: 0.5 }),
+          )
+          bubble.rotation.x = -Math.PI / 2
+          bubble.position.set(center.x, 0.045, center.z)
+          bubble.visible = false
+          this.group.add(column, bubble)
+          this.geysers.push({ def, column, bubble, center })
+          break
+        }
+        case 'hammer': {
+          const sIdx = track.sampleAt(Math.floor(def.t * track.N))
+          const center = track.worldAt(def.t, def.lane * hw)
+          const isLog = def.variant === 'log'
+          const pivot = new THREE.Group()
+          pivot.position.set(center.x, 6, center.z)
+          const arm = new THREE.Mesh(
+            new THREE.CylinderGeometry(0.12, 0.12, 4.6, 6),
+            new THREE.MeshLambertMaterial({ color: 0x8a8694 }),
+          )
+          arm.position.y = -2.3
+          const head = new THREE.Mesh(
+            isLog
+              ? new THREE.CylinderGeometry(0.55, 0.55, 3.4, 8)
+              : new THREE.SphereGeometry(1.1, 10, 8),
+            new THREE.MeshLambertMaterial({ color: isLog ? 0x7a5230 : 0x5a5f6e }),
+          )
+          if (isLog) head.rotation.z = Math.PI / 2
+          head.position.y = -4.6
+          pivot.add(arm, head)
+          this.group.add(pivot)
+          this.hammers.push({
+            def, pivot, center,
+            tanAxis: new THREE.Vector3(sIdx.tan.x, 0, sIdx.tan.z).normalize(),
+            norDir: new THREE.Vector3(sIdx.nor.x, 0, sIdx.nor.z).normalize(),
+          })
+          break
+        }
+        case 'press': {
+          const sIdx = track.sampleAt(Math.floor(def.t * track.N))
+          const center = track.worldAt(def.t, def.lane * hw)
+          const frameMat = new THREE.MeshLambertMaterial({ color: 0x3c4250 })
+          for (const sx of [-1.9, 1.9]) {
+            const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.6, 4.4, 0.6), frameMat)
+            pillar.position.set(center.x + sIdx.nor.x * sx, 2.2, center.z + sIdx.nor.z * sx)
+            this.group.add(pillar)
+          }
+          const plate = new THREE.Mesh(
+            new THREE.BoxGeometry(3.2, 0.7, 2.6),
+            new THREE.MeshLambertMaterial({ color: 0xffc81e }),
+          )
+          plate.position.set(center.x, 3.2, center.z)
+          plate.rotation.y = Math.atan2(sIdx.tan.x, sIdx.tan.z)
+          this.group.add(plate)
+          this.presses.push({ def, plate, center })
+          break
+        }
         case 'rockfall': {
           const impact = this.track.worldAt(def.t, def.lane * hw)
           const rock = new THREE.Mesh(
@@ -238,6 +351,16 @@ export class GimmickManager {
         }
       }
     })
+
+    // 가라앉은 다리 = 동적 pit (kart.step의 isPit → 기존 낙하/구조대 흐름 재사용)
+    if (this.sinkroads.length) {
+      track.dynamicPitFn = (idx: number) =>
+        this.sinkroads.some(
+          (sr) =>
+            idx >= sr.i0 && idx <= sr.i1 &&
+            !bridgeSolid(cyclePhase(this.raceSecNow, sr.def.period), sr.def.duty),
+        )
+    }
   }
 
   private isNear(p: THREE.Vector3, camPos: THREE.Vector3, cullDist: number): boolean {
@@ -246,8 +369,38 @@ export class GimmickManager {
 
   /** 매 프레임 시각 갱신 — raceSec의 순수 함수. camPos에서 먼 것은 컬링. */
   updateVisuals(raceSec: number, camPos: THREE.Vector3) {
+    this.raceSecNow = raceSec
     const cull = preset().gimmickCullDist
 
+    for (const sr of this.sinkroads) {
+      const phase = cyclePhase(raceSec, sr.def.period)
+      sr.mesh.position.y = bridgeY(phase, sr.def.duty)
+      // 침하 직전 12% 구간은 빨갛게 경고
+      const warn = phase > sr.def.duty - 0.12 && phase < sr.def.duty
+      sr.mat.color.setHex(warn ? 0xc04a38 : 0x6e6258)
+    }
+    for (const gy of this.geysers) {
+      if (!this.isNear(gy.center, camPos, cull)) { gy.column.visible = false; gy.bubble.visible = false; continue }
+      const phase = cyclePhase(raceSec, gy.def.period) * gy.def.period
+      const tToErupt = gy.def.period - phase
+      gy.bubble.visible = tToErupt <= gy.def.warnSec + 0.45 && tToErupt > 0.45
+      const erupting = tToErupt <= 0.45
+      gy.column.visible = erupting
+      if (erupting) {
+        const k = 1 - tToErupt / 0.45
+        gy.column.scale.y = Math.max(0.001, Math.sin(k * Math.PI))
+        gy.column.position.y = 3.5 * gy.column.scale.y
+      }
+    }
+    for (const hm of this.hammers) {
+      if (!this.isNear(hm.center, camPos, cull)) continue
+      const ang = Math.sin(cyclePhase(raceSec, hm.def.period) * Math.PI * 2) * 1.05
+      hm.pivot.quaternion.setFromAxisAngle(hm.tanAxis, ang)
+    }
+    for (const pr of this.presses) {
+      if (!this.isNear(pr.center, camPos, cull)) continue
+      pr.plate.position.y = pressY(cyclePhase(raceSec, pr.def.period))
+    }
     for (const sb of this.spinbars) {
       if (!this.isNear(sb.center, camPos, cull)) continue
       sb.pivot.rotation.y = spinbarAngle(raceSec, sb.def.period)
@@ -296,7 +449,8 @@ export class GimmickManager {
    * actorKey는 쿨다운 키 ('me', AI id 등). 원격 카트에는 호출하지 않는다(피해자 권한).
    */
   applyToActor(actorKey: string, kart: Kart, raceSec: number, dt: number): GimmickHit {
-    const hit: GimmickHit = { spun: false, bounced: false, teleported: false, smashedCrate: null }
+    this.raceSecNow = raceSec
+    const hit: GimmickHit = { spun: false, bounced: false, teleported: false, launched: false, smashedCrate: null }
     const tr = this.track
     const tFrac = kart.trackIdx / tr.N
     const lat = tr.lateral(kart.pos, kart.trackIdx)
@@ -394,6 +548,51 @@ export class GimmickManager {
       kart.vy = 0
       kart.airborne = false
       hit.teleported = true
+    })
+
+    // F 간헐천: 분출 중 위에 있으면 발사 (공중이면 무시 — 재발사 방지)
+    for (const gy of this.geysers) {
+      if (kart.airborne) break
+      const phase = cyclePhase(raceSec, gy.def.period) * gy.def.period
+      if (gy.def.period - phase > 0.45) continue
+      const dx = kart.pos.x - gy.center.x
+      const dz = kart.pos.z - gy.center.z
+      if (dx * dx + dz * dz < 1.6 * 1.6) {
+        kart.applyJump(13)
+        hit.launched = true
+      }
+    }
+
+    // A 해머/통나무: 헤드 위치는 시간의 순수 함수 — 거리 체크 → 스핀
+    this.hammers.forEach((hm, i) => {
+      const key = `${actorKey}:hm${i}`
+      if ((this.cooldown.get(key) ?? -1) > raceSec || kart.spinT > 0 || kart.y > 1.2) return
+      const ang = Math.sin(cyclePhase(raceSec, hm.def.period) * Math.PI * 2) * 1.05
+      const headY = 6 - 4.6 * Math.cos(ang)
+      if (headY > 1.7) return // 스윙 끝단은 높아서 안 맞음
+      const hx = hm.center.x + hm.norDir.x * Math.sin(ang) * 4.6
+      const hz = hm.center.z + hm.norDir.z * Math.sin(ang) * 4.6
+      const dx = kart.pos.x - hx
+      const dz = kart.pos.z - hz
+      if (dx * dx + dz * dz < 1.6 * 1.6) {
+        this.cooldown.set(key, raceSec + 2)
+        kart.applySpin()
+        hit.spun = true
+      }
+    })
+
+    // A 프레스: 플레이트가 내려와 있을 때 아래 있으면 스핀
+    this.presses.forEach((pr, i) => {
+      const key = `${actorKey}:pr${i}`
+      if ((this.cooldown.get(key) ?? -1) > raceSec || kart.spinT > 0 || kart.y > 0.9) return
+      if (pressY(cyclePhase(raceSec, pr.def.period)) > 1.0) return
+      const dx = kart.pos.x - pr.center.x
+      const dz = kart.pos.z - pr.center.z
+      if (dx * dx + dz * dz < 1.7 * 1.7) {
+        this.cooldown.set(key, raceSec + 2)
+        kart.applySpin()
+        hit.spun = true
+      }
     })
 
     // F 낙석: 임팩트 순간(0.25초 창) 반경 안이면 스핀

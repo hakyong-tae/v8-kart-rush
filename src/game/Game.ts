@@ -916,6 +916,7 @@ export class Game {
             this.camShake = Math.max(this.camShake, 0.22)
           }
           if (gh.teleported) audio.boost()
+          if (gh.launched) audio.driftTick(1)
           if (gh.smashedCrate) {
             audio.wallBump()
             this.particles.landingDust(gh.smashedCrate)
