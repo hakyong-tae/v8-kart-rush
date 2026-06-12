@@ -682,6 +682,105 @@ export function buildDecorations(track: Track, assets: Assets): THREE.Group {
       }
       break
     }
+    case 'volcano': {
+      // 원거리 화산 콘 (꼭대기 글로우) — 트랙을 빙 둘러 배치
+      const rockMat = new THREE.MeshLambertMaterial({ color: 0x3a2c28 })
+      const glowMat = new THREE.MeshBasicMaterial({ color: 0xff7a3a })
+      for (let k = 0; k < 6; k++) {
+        const idx = Math.floor((k / 6) * N + rand() * 60)
+        const side = k % 2 === 0 ? 1 : -1
+        const s = track.sampleAt(idx)
+        const lat = side * (wall + 45 + rand() * 30)
+        const p = new THREE.Vector3(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
+        if (Math.abs(track.lateral(p, track.nearestIndex(p))) < hw + 20) continue
+        const h = 20 + rand() * 14
+        const cone = new THREE.Mesh(new THREE.ConeGeometry(h * 0.62, h, 7), rockMat)
+        cone.position.set(p.x, h / 2, p.z)
+        cone.rotation.y = rand() * Math.PI
+        const glow = new THREE.Mesh(new THREE.SphereGeometry(h * 0.1, 6, 5), glowMat)
+        glow.position.set(p.x, h + h * 0.02, p.z)
+        group.add(cone, glow)
+      }
+      // 검은 현무암 바위
+      for (let k = 0; k < Math.round(26 * preset().decorScale); k++) {
+        const idx = Math.floor(rand() * N)
+        const side = rand() < 0.5 ? 1 : -1
+        const lat = side * (wall + 3 + rand() * 28)
+        const s = track.sampleAt(idx)
+        const p = new THREE.Vector3(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
+        if (Math.abs(track.lateral(p, track.nearestIndex(p))) < hw + 3.5) continue
+        const r = 0.9 + rand() * 2.2
+        const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 0), rockMat)
+        rock.position.set(p.x, r * 0.55, p.z)
+        rock.rotation.set(rand() * Math.PI, rand() * Math.PI, 0)
+        group.add(rock)
+      }
+      // 용암 글로우 웅덩이
+      const lavaMat = new THREE.MeshBasicMaterial({ color: 0xff5a26, transparent: true, opacity: 0.55 })
+      for (let k = 0; k < Math.round(10 * preset().decorScale); k++) {
+        const idx = Math.floor(rand() * N)
+        const side = rand() < 0.5 ? 1 : -1
+        const lat = side * (wall + 5 + rand() * 22)
+        const s = track.sampleAt(idx)
+        const p = new THREE.Vector3(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
+        if (Math.abs(track.lateral(p, track.nearestIndex(p))) < hw + 4) continue
+        const pool = new THREE.Mesh(new THREE.CircleGeometry(2 + rand() * 2.5, 10), lavaMat)
+        pool.rotation.x = -Math.PI / 2
+        pool.position.set(p.x, 0.02, p.z)
+        group.add(pool)
+      }
+      break
+    }
+    case 'factory': {
+      // 컨테이너 스택
+      const palette = [0x4a6da0, 0xb0563a, 0x6a7a4a, 0x6e7480]
+      for (let k = 0; k < Math.round(12 * preset().decorScale); k++) {
+        const idx = Math.floor(rand() * N)
+        const side = rand() < 0.5 ? 1 : -1
+        const lat = side * (wall + 4 + rand() * 26)
+        const s = track.sampleAt(idx)
+        const p = new THREE.Vector3(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
+        if (Math.abs(track.lateral(p, track.nearestIndex(p))) < hw + 5) continue
+        const layers = 1 + Math.floor(rand() * 3)
+        for (let l = 0; l < layers; l++) {
+          const box = new THREE.Mesh(
+            new THREE.BoxGeometry(6, 3, 3),
+            new THREE.MeshLambertMaterial({ color: palette[Math.floor(rand() * palette.length)] }),
+          )
+          box.position.set(p.x + (rand() - 0.5) * 1.2, 1.5 + l * 3, p.z + (rand() - 0.5) * 1.2)
+          box.rotation.y = rand() * 0.4 - 0.2
+          group.add(box)
+        }
+      }
+      // 원통 탱크 + 원거리 굴뚝
+      const tankMat = new THREE.MeshLambertMaterial({ color: 0x8a8f9a })
+      const stackMat = new THREE.MeshLambertMaterial({ color: 0x4a4f5a })
+      for (let k = 0; k < 5; k++) {
+        const idx = Math.floor(rand() * N)
+        const side = rand() < 0.5 ? 1 : -1
+        const s = track.sampleAt(idx)
+        const lat = side * (wall + 8 + rand() * 18)
+        const p = new THREE.Vector3(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
+        if (Math.abs(track.lateral(p, track.nearestIndex(p))) < hw + 6) continue
+        const tank = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 6, 12), tankMat)
+        tank.position.set(p.x, 3, p.z)
+        group.add(tank)
+      }
+      for (let k = 0; k < 4; k++) {
+        const idx = Math.floor(((k + 0.4) / 4) * N)
+        const side = k % 2 === 0 ? 1 : -1
+        const s = track.sampleAt(idx)
+        const lat = side * (wall + 34 + rand() * 14)
+        const p = new THREE.Vector3(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
+        if (Math.abs(track.lateral(p, track.nearestIndex(p))) < hw + 16) continue
+        const stack = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.6, 18, 10), stackMat)
+        stack.position.set(p.x, 9, p.z)
+        const rim = new THREE.Mesh(new THREE.CylinderGeometry(1.35, 1.35, 1.2, 10), tankMat)
+        rim.position.set(p.x, 17.6, p.z)
+        group.add(stack, rim)
+      }
+      break
+    }
     default:
       scatter(['treeLarge', 'treeSmall'], [4.5, 7], 50, wall + 4, wall + 50)
   }
