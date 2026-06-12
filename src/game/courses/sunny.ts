@@ -27,6 +27,11 @@ export const sunny: CourseDef = {
     { t: 0.48, lanes: [-0.6, 0, 0.6] },
     { t: 0.82, lanes: [-0.6, 0, 0.6] },
   ],
+  gimmicks: [
+    { type: 'mud', t0: 0.40, t1: 0.445, side: 0 as const },
+    { type: 'crates', t: 0.65, lane: -0.5, count: 4 },
+    { type: 'crates', t: 0.66, lane: 0.5, count: 3 },
+  ],
   decorSeed: 11,
   theme: {
     sky: 0x6ecbff, fog: 0xcdeeff, fogDensity: 0.0013,

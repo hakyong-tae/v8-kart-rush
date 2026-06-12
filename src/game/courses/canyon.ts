@@ -32,6 +32,10 @@ export const canyon: CourseDef = {
     { t: 0.58, lanes: [-0.6, 0, 0.6] },
     { t: 0.9, lanes: [-0.6, 0, 0.6] },
   ],
+  gimmicks: [
+    { type: 'rockfall', t: 0.18, lane: -0.3, period: 5, warnSec: 1 },
+    { type: 'rockfall', t: 0.62, lane: 0.4, period: 6.5, warnSec: 1 },
+  ],
   decorSeed: 23,
   theme: {
     sky: 0xffd089, fog: 0xffe3b3, fogDensity: 0.0016,

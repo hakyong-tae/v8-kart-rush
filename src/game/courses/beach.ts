@@ -33,6 +33,10 @@ export const beach: CourseDef = {
     { t: 0.72, lanes: [-0.6, 0, 0.6] },
     { t: 0.92, lanes: [-0.6, 0, 0.6] },
   ],
+  gimmicks: [
+    { type: 'tide', period: 46, range: 1.6 },
+    { type: 'conveyor', t0: 0.46, t1: 0.54, dir: 1 as const, push: 6 },
+  ],
   decorSeed: 77,
   theme: {
     sky: 0xffc1a1, fog: 0xffe0c2, fogDensity: 0.0012,

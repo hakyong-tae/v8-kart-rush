@@ -29,6 +29,11 @@ export const neon: CourseDef = {
     { t: 0.5, lanes: [-0.6, 0, 0.6] },
     { t: 0.84, lanes: [-0.6, 0, 0.6] },
   ],
+  gimmicks: [
+    { type: 'teleport', t: 0.27, exitT: 0.345 },
+    { type: 'spinbar', t: 0.55, period: 4 },
+    { type: 'turntable', t: 0.9, lane: 0, radius: 4.5, spin: 0.9 },
+  ],
   decorSeed: 47,
   theme: {
     sky: 0x131a45, fog: 0x232c63, fogDensity: 0.002,

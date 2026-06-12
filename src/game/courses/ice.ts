@@ -28,6 +28,11 @@ export const ice: CourseDef = {
     { t: 0.55, lanes: [-0.6, 0, 0.6] },
     { t: 0.88, lanes: [-0.6, 0, 0.6] },
   ],
+  gimmicks: [
+    { type: 'bumper', t: 0.32, lane: -0.45 },
+    { type: 'bumper', t: 0.345, lane: 0.4 },
+    { type: 'bumper', t: 0.37, lane: 0 },
+  ],
   decorSeed: 31,
   theme: {
     sky: 0xa9e4ff, fog: 0xe2f4ff, fogDensity: 0.0015,
