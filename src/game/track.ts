@@ -29,6 +29,7 @@ export class Track {
   halfWidth: number
   wallDist: number // guardrail distance from centerline
   totalLength: number
+  pitLatShift = 0 // 밀물/썰물: open 맵 익사 경계를 동적으로 이동 (GimmickManager가 설정)
 
   constructor(course: CourseDef) {
     this.course = course
@@ -120,7 +121,7 @@ export class Track {
   /** Is this position over a pit (cliff / open water)? Falling here calls the rescuer. */
   isPit(idx: number, lat: number): boolean {
     const c = this.course
-    if (c.open && c.ocean) return Math.abs(lat) > this.wallDist + 0.5
+    if (c.open && c.ocean) return Math.abs(lat) > this.wallDist + 0.5 + this.pitLatShift
     if (Math.abs(lat) <= this.halfWidth + 1.6) return false
     const i = ((idx % this.N) + this.N) % this.N
     for (const p of c.pits) {
@@ -231,6 +232,7 @@ function makeWall(
 export interface TrackMeshes {
   group: THREE.Group
   boostPadMats: THREE.MeshBasicMaterial[]
+  ocean?: THREE.Mesh
 }
 
 export function buildTrackMeshes(track: Track): TrackMeshes {
@@ -241,6 +243,7 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
 
   // Ground — open island maps are a sand RING around the course; beyond the
   // buoy line (and across the deep infield) is open water you can fall into.
+  let ocean: THREE.Mesh | undefined
   if (course.open && course.ocean) {
     const sandCol = new THREE.Color(theme.ground)
     const sand = new THREE.Mesh(
@@ -248,7 +251,7 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
       new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }),
     )
     group.add(sand)
-    const ocean = new THREE.Mesh(
+    ocean = new THREE.Mesh(
       new THREE.PlaneGeometry(3000, 3000),
       new THREE.MeshLambertMaterial({ color: course.ocean }),
     )
@@ -480,5 +483,5 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
     group.add(new THREE.Mesh(geo, mat))
   }
 
-  return { group, boostPadMats }
+  return { group, boostPadMats, ocean }
 }
