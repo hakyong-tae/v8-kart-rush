@@ -34,6 +34,8 @@ export class Track {
   dynamicPitFn: ((idx: number) => boolean) | null = null
   /** 보조 도로(지름길) 판정 — GimmickManager가 설정. true면 오프로드/벽/역주행 면제 */
   auxRoadFn: ((pos: THREE.Vector3) => boolean) | null = null
+  /** 뱅크 기울기 (lat 1당 높이) — 평지/뱅크 없으면 전부 0 */
+  bankSlope: Float32Array
 
   constructor(course: CourseDef) {
     this.course = course
@@ -50,6 +52,50 @@ export class Track {
       const nor = new THREE.Vector3().crossVectors(up, tan).normalize()
       this.samples.push({ pos, tan, nor })
     }
+
+    // 높이 프로필 베이크 (코사인 보간, 랩 래핑) — elevation 없으면 전부 y=0 유지
+    const elev = course.elevation
+    if (elev && elev.length >= 2) {
+      const cps = [...elev].sort((a, b) => a.t - b.t)
+      const hAt = (t: number) => {
+        // t를 감싸는 두 컨트롤 포인트 (래핑)
+        let a = cps[cps.length - 1]
+        let b = cps[0]
+        let span = 1 - a.t + b.t
+        let local = t >= a.t ? t - a.t : t + 1 - a.t
+        for (let k = 0; k < cps.length - 1; k++) {
+          if (t >= cps[k].t && t < cps[k + 1].t) {
+            a = cps[k]; b = cps[k + 1]
+            span = b.t - a.t
+            local = t - a.t
+            break
+          }
+        }
+        const f = span > 1e-9 ? local / span : 0
+        const s = (1 - Math.cos(f * Math.PI)) / 2 // 코사인 이즈
+        return a.h + (b.h - a.h) * s
+      }
+      for (let i = 0; i < this.N; i++) this.samples[i].pos.y = hAt(i / this.N)
+    }
+
+    // 뱅크 기울기 베이크 (구간 양끝 30샘플 코사인 이즈)
+    this.bankSlope = new Float32Array(this.N)
+    for (const bk of course.bank ?? []) {
+      const i0 = Math.floor(bk.t0 * this.N)
+      const i1 = Math.floor(bk.t1 * this.N)
+      const EASE = 30
+      for (let i = i0; i <= i1; i++) {
+        const din = Math.min(i - i0, i1 - i)
+        const k = din >= EASE ? 1 : (1 - Math.cos((din / EASE) * Math.PI)) / 2
+        this.bankSlope[((i % this.N) + this.N) % this.N] = bk.slope * k
+      }
+    }
+  }
+
+  /** 도로 표면 높이 (중심 높이 + 뱅크 기울기×횡위치). 평지 코스는 항상 0 */
+  groundY(idx: number, lat: number): number {
+    const i = ((idx % this.N) + this.N) % this.N
+    return this.samples[i].pos.y + this.bankSlope[i] * lat
   }
 
   sampleAt(idx: number): TrackSample {
@@ -107,13 +153,13 @@ export class Track {
     return Math.abs(this.lateral(pos, idx)) <= this.halfWidth + 0.6
   }
 
-  // World position at spline t with lateral offset
+  // World position at spline t with lateral offset (y = 도로 표면 높이)
   worldAt(t: number, lat: number): THREE.Vector3 {
     const idx = Math.floor((((t % 1) + 1) % 1) * this.N)
     const s = this.sampleAt(idx)
     return new THREE.Vector3(
       s.pos.x + s.nor.x * lat,
-      0,
+      this.groundY(idx, lat),
       s.pos.z + s.nor.z * lat,
     )
   }
@@ -155,7 +201,7 @@ export class Track {
     const lat = slot % 2 === 0 ? -this.halfWidth * 0.4 : this.halfWidth * 0.4
     const pos = new THREE.Vector3(
       s.pos.x + s.nor.x * lat,
-      0,
+      this.groundY(idx, lat),
       s.pos.z + s.nor.z * lat,
     )
     const heading = Math.atan2(s.tan.x, s.tan.z)
@@ -182,8 +228,8 @@ function makeStrip(
     const collapsed = skip?.(i) ?? false
     const li = latInner(i)
     const lo = collapsed ? li : latOuter(i)
-    positions.push(s.pos.x + s.nor.x * li, y, s.pos.z + s.nor.z * li)
-    positions.push(s.pos.x + s.nor.x * lo, y, s.pos.z + s.nor.z * lo)
+    positions.push(s.pos.x + s.nor.x * li, track.groundY(i, li) + y, s.pos.z + s.nor.z * li)
+    positions.push(s.pos.x + s.nor.x * lo, track.groundY(i, lo) + y, s.pos.z + s.nor.z * lo)
     const c = colorFn(i)
     colors.push(c.r, c.g, c.b, c.r, c.g, c.b)
     if (i < N) {
@@ -217,8 +263,9 @@ function makeWall(
     const s = track.sampleAt(i)
     const x = s.pos.x + s.nor.x * lat
     const z = s.pos.z + s.nor.z * lat
+    const gy = track.groundY(i, lat)
     const collapsed = skip?.(i) ?? false
-    positions.push(x, y0, z, x, collapsed ? y0 : y1, z)
+    positions.push(x, gy + y0, z, x, collapsed ? gy + y0 : gy + y1, z)
     const c = colorFn(i)
     colors.push(c.r, c.g, c.b, c.r, c.g, c.b)
     if (i < N) {
@@ -273,11 +320,12 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
     group.add(ocean)
   } else {
     const ground = new THREE.Mesh(
-      new THREE.PlaneGeometry(1600, 1600),
+      new THREE.PlaneGeometry(course.skyMap ? 3000 : 1600, course.skyMap ? 3000 : 1600),
       new THREE.MeshLambertMaterial({ color: theme.ground }),
     )
     ground.rotation.x = -Math.PI / 2
-    ground.position.y = -0.06
+    // 하늘 맵: 지면을 구름바다처럼 까마득히 아래로
+    ground.position.y = course.skyMap ? -42 : -0.06
     group.add(ground)
   }
 
@@ -398,8 +446,8 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
       const s = track.sampleAt(i)
       const k = (i - i0) / Math.max(1, i1 - i0)
       const y = k * 1.15 // rises to launch height
-      positions.push(s.pos.x - s.nor.x * w, y, s.pos.z - s.nor.z * w)
-      positions.push(s.pos.x + s.nor.x * w, y, s.pos.z + s.nor.z * w)
+      positions.push(s.pos.x - s.nor.x * w, track.groundY(i, -w) + y, s.pos.z - s.nor.z * w)
+      positions.push(s.pos.x + s.nor.x * w, track.groundY(i, w) + y, s.pos.z + s.nor.z * w)
       const c = Math.floor((i - i0) / 4) % 2 === 0 ? colA : colB
       colors.push(c.r, c.g, c.b, c.r, c.g, c.b)
       if (i < i1) {
@@ -466,7 +514,7 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
           [s1, l0],
           [s1, l1],
         ] as const) {
-          positions.push(s.pos.x + s.nor.x * l, 0.025, s.pos.z + s.nor.z * l)
+          positions.push(s.pos.x + s.nor.x * l, track.groundY(track.N - 2 + r, l) + 0.025, s.pos.z + s.nor.z * l)
           colors.push(col.r, col.g, col.b)
         }
         indices.push(base, base + 2, base + 1, base + 1, base + 2, base + 3)
@@ -498,8 +546,8 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
     for (let i = i0; i <= i1; i++) {
       const s = track.sampleAt(i)
       const w = hw * 0.55
-      positions.push(s.pos.x - s.nor.x * w, 0.03, s.pos.z - s.nor.z * w)
-      positions.push(s.pos.x + s.nor.x * w, 0.03, s.pos.z + s.nor.z * w)
+      positions.push(s.pos.x - s.nor.x * w, track.groundY(i, -w) + 0.03, s.pos.z - s.nor.z * w)
+      positions.push(s.pos.x + s.nor.x * w, track.groundY(i, w) + 0.03, s.pos.z + s.nor.z * w)
       const c = Math.floor((i - i0) / 3) % 2 === 0 ? bright : deep
       colors.push(c.r, c.g, c.b, c.r, c.g, c.b)
       if (i < i1) {

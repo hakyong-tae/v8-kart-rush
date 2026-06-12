@@ -992,6 +992,11 @@ export class Game {
       const k = THREE.MathUtils.clamp((now - r.from.t) / span, 0, 1.35)
       r.group.position.x = THREE.MathUtils.lerp(r.from.x, r.to.x, k)
       r.group.position.z = THREE.MathUtils.lerp(r.from.z, r.to.z, k)
+      {
+        // 고저차 코스: 원격 카트도 도로 표면 높이를 따른다 (PosMsg에는 y가 없음)
+        const ri = this.track.nearestIndex(r.group.position)
+        r.group.position.y = this.track.groundY(ri, this.track.lateral(r.group.position, ri))
+      }
       let dh = r.to.h - r.from.h
       while (dh > Math.PI) dh -= Math.PI * 2
       while (dh < -Math.PI) dh += Math.PI * 2
@@ -1058,6 +1063,10 @@ export class Game {
         this.ghostGroup.visible = true
         this.ghostGroup.position.x = THREE.MathUtils.lerp(s[i0], s[i1], f)
         this.ghostGroup.position.z = THREE.MathUtils.lerp(s[i0 + 1], s[i1 + 1], f)
+        {
+          const gi = this.track.nearestIndex(this.ghostGroup.position)
+          this.ghostGroup.position.y = this.track.groundY(gi, this.track.lateral(this.ghostGroup.position, gi))
+        }
         let dh = s[i1 + 2] - s[i0 + 2]
         while (dh > Math.PI) dh -= Math.PI * 2
         while (dh < -Math.PI) dh += Math.PI * 2
@@ -1078,7 +1087,7 @@ export class Game {
 
     // AI visuals
     for (const ai of this.ais) {
-      ai.group.position.set(ai.kart.pos.x, ai.kart.y, ai.kart.pos.z)
+      ai.group.position.set(ai.kart.pos.x, ai.kart.pos.y + ai.kart.y, ai.kart.pos.z)
       let yaw = ai.kart.heading
       if (ai.kart.spinT > 0) yaw += ai.kart.spinT * 12
       ai.group.rotation.y = yaw
@@ -1113,7 +1122,7 @@ export class Game {
         while (this.flameAcc > 0.03) {
           this.flameAcc -= 0.03
           this.particles.boostFlame(
-            new THREE.Vector3(k.pos.x - fwdX * 1.7, k.y + 0.55, k.pos.z - fwdZ * 1.7),
+            new THREE.Vector3(k.pos.x - fwdX * 1.7, k.pos.y + k.y + 0.55, k.pos.z - fwdZ * 1.7),
             k.boosterT > 0,
           )
         }
@@ -1171,8 +1180,8 @@ export class Game {
       const fwdX = Math.sin(k.heading)
       const fwdZ = Math.cos(k.heading)
       this.rearCam.aspect = mw / mh
-      this.rearCam.position.set(k.pos.x + fwdX * 1.2, k.y + 2.6, k.pos.z + fwdZ * 1.2)
-      this.rearCam.lookAt(k.pos.x - fwdX * 14, k.y + 0.6, k.pos.z - fwdZ * 14)
+      this.rearCam.position.set(k.pos.x + fwdX * 1.2, k.pos.y + k.y + 2.6, k.pos.z + fwdZ * 1.2)
+      this.rearCam.lookAt(k.pos.x - fwdX * 14, k.pos.y + k.y + 0.6, k.pos.z - fwdZ * 14)
       this.rearCam.updateProjectionMatrix()
       this.renderer.setScissorTest(true)
       this.renderer.setViewport(mx, myGL, mw, mh)
@@ -1205,7 +1214,7 @@ export class Game {
       dur: 2.3,
       from: k.pos.clone(),
       fromY: k.y,
-      to: new THREE.Vector3(s.pos.x, 0, s.pos.z),
+      to: new THREE.Vector3(s.pos.x, s.pos.y, s.pos.z),
       toHeading: Math.atan2(s.tan.x, s.tan.z),
     }
     k.speed = 0
@@ -1235,7 +1244,7 @@ export class Game {
     k.velDir = k.heading
     k.trackIdx = this.track.nearestIndex(k.pos, k.trackIdx)
     // rescuer floats above the kart, line down to it
-    this.rescuer.position.set(k.pos.x, k.y + 4.2, k.pos.z)
+    this.rescuer.position.set(k.pos.x, k.pos.y + k.y + 4.2, k.pos.z)
     this.rescuer.rotation.y = k.heading
     if (p >= 1) {
       k.pos.copy(r.to)
@@ -1308,7 +1317,7 @@ export class Game {
     const k = this.kart
     this.kartGroup.position.set(
       k.pos.x,
-      k.y + k.hop * 0.45 * Math.sin(Math.min(1, 1 - k.hop) * Math.PI + 0.001),
+      k.pos.y + k.y + k.hop * 0.45 * Math.sin(Math.min(1, 1 - k.hop) * Math.PI + 0.001),
       k.pos.z,
     )
     let yaw = k.heading + k.driftDir * 0.38
@@ -1357,7 +1366,7 @@ export class Game {
     const back = 7.0
     const fwdX = Math.sin(k.heading)
     const fwdZ = Math.cos(k.heading)
-    const target = new THREE.Vector3(k.pos.x - fwdX * back, 3.4, k.pos.z - fwdZ * back)
+    const target = new THREE.Vector3(k.pos.x - fwdX * back, k.pos.y + 3.4, k.pos.z - fwdZ * back)
     if (!this.camInit) {
       this.camPos.copy(target)
       this.camInit = true
@@ -1374,7 +1383,7 @@ export class Game {
     }
     this.camera.fov = 72 * speedZoom + this.fovPunch * 13
     this.camera.updateProjectionMatrix()
-    this.camera.lookAt(k.pos.x + fwdX * 6, 1.2, k.pos.z + fwdZ * 6)
+    this.camera.lookAt(k.pos.x + fwdX * 6, k.pos.y + 1.2, k.pos.z + fwdZ * 6)
   }
 
   private snapshot(now: number): HudSnapshot {

@@ -21,6 +21,7 @@ export type GimmickDef =
   | { type: 'hammer'; t: number; lane: number; period: number; variant?: 'hammer' | 'log' } // 진자 해머/통나무
   | { type: 'press'; t: number; lane: number; period: number } // 프레스
   | { type: 'shortcut'; entryT: number; exitT: number; via: [number, number][]; width: number } // 샛길 (via: 월드 경유점)
+  | { type: 'cannon'; t: number; landT: number; flightSec: number } // 대포 — 밟으면 착지점으로 발사
 
 /** 스플라인 t(0..1) 범위 판정 — 랩 경계(1→0) 래핑 지원 */
 export function inSplineRange(tFrac: number, t0: number, t1: number): boolean {
@@ -89,6 +90,7 @@ interface GeyserRT { def: Extract<GimmickDef, { type: 'geyser' }>; column: THREE
 interface HammerRT { def: Extract<GimmickDef, { type: 'hammer' }>; pivot: THREE.Group; center: THREE.Vector3; tanAxis: THREE.Vector3; norDir: THREE.Vector3 }
 interface PressRT { def: Extract<GimmickDef, { type: 'press' }>; plate: THREE.Mesh; center: THREE.Vector3 }
 interface ShortcutRT { def: Extract<GimmickDef, { type: 'shortcut' }>; samples: THREE.Vector3[] }
+interface CannonRT { def: Extract<GimmickDef, { type: 'cannon' }>; pad: THREE.Vector3; land: THREE.Vector3 }
 
 export interface GimmickHit {
   spun: boolean // 스핀 당함 (회전바/낙석/해머/프레스)
@@ -117,6 +119,7 @@ export class GimmickManager {
   private hammers: HammerRT[] = []
   private presses: PressRT[] = []
   private shortcuts: ShortcutRT[] = []
+  private cannons: CannonRT[] = []
   private cooldown = new Map<string, number>() // `${actor}:${i}` → raceSec until
   private raceSecNow = 0 // track.dynamicPitFn이 읽는 현재 시각 (매 프레임 갱신)
 
@@ -138,8 +141,8 @@ export class GimmickManager {
           for (let k = i0; k <= i1; k++) {
             const s = track.sampleAt(k)
             const w = hw * 0.92
-            positions.push(s.pos.x - s.nor.x * w, 0.035, s.pos.z - s.nor.z * w)
-            positions.push(s.pos.x + s.nor.x * w, 0.035, s.pos.z + s.nor.z * w)
+            positions.push(s.pos.x - s.nor.x * w, track.groundY(k, -w) + 0.035, s.pos.z - s.nor.z * w)
+            positions.push(s.pos.x + s.nor.x * w, track.groundY(k, w) + 0.035, s.pos.z + s.nor.z * w)
             if (k < i1) {
               const a = (k - i0) * 2
               indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3)
@@ -164,7 +167,7 @@ export class GimmickManager {
             new THREE.CylinderGeometry(1.1, 1.3, 0.9, 12),
             new THREE.MeshLambertMaterial({ color: 0xe04438 }),
           )
-          mesh.position.set(center.x, 0.45, center.z)
+          mesh.position.set(center.x, center.y + 0.45, center.z)
           this.group.add(mesh)
           this.bumpers.push({ def, mesh, center })
           break
@@ -179,7 +182,7 @@ export class GimmickManager {
           for (let k = 0; k < def.count; k++) {
             const p = this.track.worldAt(def.t + k * 0.004, def.lane * hw)
             crates.push({ pos: p, brokenUntil: -1, shownBroken: false })
-            dummy.position.set(p.x, 0.55, p.z)
+            dummy.position.set(p.x, p.y + 0.55, p.z)
             dummy.rotation.y = k * 0.6
             dummy.updateMatrix()
             mesh.setMatrixAt(k, dummy.matrix)
@@ -195,7 +198,7 @@ export class GimmickManager {
             new THREE.CylinderGeometry(def.radius, def.radius, 0.1, 24),
             new THREE.MeshLambertMaterial({ color: 0x4a8dff }),
           )
-          mesh.position.set(center.x, 0.05, center.z)
+          mesh.position.set(center.x, center.y + 0.05, center.z)
           this.group.add(mesh)
           this.turntables.push({ def, mesh, center })
           break
@@ -204,7 +207,7 @@ export class GimmickManager {
           const center = track.worldAt(def.t, 0)
           const halfLen = hw * 0.9
           const pivot = new THREE.Group()
-          pivot.position.set(center.x, 0.55, center.z)
+          pivot.position.set(center.x, center.y + 0.55, center.z)
           const bar = new THREE.Mesh(
             new THREE.BoxGeometry(halfLen * 2, 0.5, 0.5),
             new THREE.MeshLambertMaterial({ color: 0xff9d2e }),
@@ -214,7 +217,7 @@ export class GimmickManager {
             new THREE.CylinderGeometry(0.3, 0.4, 1.2, 8),
             new THREE.MeshLambertMaterial({ color: 0x666a78 }),
           )
-          post.position.set(center.x, 0.6, center.z)
+          post.position.set(center.x, center.y + 0.6, center.z)
           this.group.add(pivot, post)
           this.spinbars.push({ def, pivot, center, halfLen })
           break
@@ -234,7 +237,7 @@ export class GimmickManager {
               new THREE.MeshBasicMaterial({ color }),
             )
             const s = this.track.sampleAt(Math.floor(t * this.track.N))
-            g.position.set(p.x, 2.4, p.z)
+            g.position.set(p.x, p.y + 2.4, p.z)
             g.rotation.y = Math.atan2(s.tan.x, s.tan.z)
             this.group.add(g)
             return g
@@ -256,8 +259,8 @@ export class GimmickManager {
           for (let k = i0; k <= i1; k++) {
             const s = track.sampleAt(k)
             const w = hw + 1.0
-            positions.push(s.pos.x - s.nor.x * w, 0, s.pos.z - s.nor.z * w)
-            positions.push(s.pos.x + s.nor.x * w, 0, s.pos.z + s.nor.z * w)
+            positions.push(s.pos.x - s.nor.x * w, track.groundY(k, -w), s.pos.z - s.nor.z * w)
+            positions.push(s.pos.x + s.nor.x * w, track.groundY(k, w), s.pos.z + s.nor.z * w)
             if (k < i1) {
               const a = (k - i0) * 2
               indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3)
@@ -277,7 +280,7 @@ export class GimmickManager {
             new THREE.MeshBasicMaterial({ color: def.floor ?? 0xff5a26 }),
           )
           floor.rotation.x = -Math.PI / 2
-          floor.position.set(mid.pos.x, -7.5, mid.pos.z)
+          floor.position.set(mid.pos.x, mid.pos.y - 7.5, mid.pos.z)
           this.group.add(floor)
           this.sinkroads.push({ def, mesh, mat, i0, i1 })
           break
@@ -288,7 +291,7 @@ export class GimmickManager {
             new THREE.CylinderGeometry(1.0, 1.3, 7, 10, 1, true),
             new THREE.MeshLambertMaterial({ color: 0xeaf6ff, transparent: true, opacity: 0.65 }),
           )
-          column.position.set(center.x, 0, center.z)
+          column.position.set(center.x, center.y, center.z)
           column.scale.y = 0.001
           column.visible = false
           const bubble = new THREE.Mesh(
@@ -296,7 +299,7 @@ export class GimmickManager {
             new THREE.MeshBasicMaterial({ color: 0xbfe8ff, transparent: true, opacity: 0.5 }),
           )
           bubble.rotation.x = -Math.PI / 2
-          bubble.position.set(center.x, 0.045, center.z)
+          bubble.position.set(center.x, center.y + 0.045, center.z)
           bubble.visible = false
           this.group.add(column, bubble)
           this.geysers.push({ def, column, bubble, center })
@@ -307,7 +310,7 @@ export class GimmickManager {
           const center = track.worldAt(def.t, def.lane * hw)
           const isLog = def.variant === 'log'
           const pivot = new THREE.Group()
-          pivot.position.set(center.x, 6, center.z)
+          pivot.position.set(center.x, center.y + 6, center.z)
           const arm = new THREE.Mesh(
             new THREE.CylinderGeometry(0.12, 0.12, 4.6, 6),
             new THREE.MeshLambertMaterial({ color: 0x8a8694 }),
@@ -336,14 +339,14 @@ export class GimmickManager {
           const frameMat = new THREE.MeshLambertMaterial({ color: 0x3c4250 })
           for (const sx of [-1.9, 1.9]) {
             const pillar = new THREE.Mesh(new THREE.BoxGeometry(0.6, 4.4, 0.6), frameMat)
-            pillar.position.set(center.x + sIdx.nor.x * sx, 2.2, center.z + sIdx.nor.z * sx)
+            pillar.position.set(center.x + sIdx.nor.x * sx, center.y + 2.2, center.z + sIdx.nor.z * sx)
             this.group.add(pillar)
           }
           const plate = new THREE.Mesh(
             new THREE.BoxGeometry(3.2, 0.7, 2.6),
             new THREE.MeshLambertMaterial({ color: 0xffc81e }),
           )
-          plate.position.set(center.x, 3.2, center.z)
+          plate.position.set(center.x, center.y + 3.2, center.z)
           plate.rotation.y = Math.atan2(sIdx.tan.x, sIdx.tan.z)
           this.group.add(plate)
           this.presses.push({ def, plate, center })
@@ -374,8 +377,8 @@ export class GimmickManager {
             const tan = curve.getTangentAt(k / M)
             const nx = tan.z, nz = -tan.x // 좌측 법선
             const p = samples[k]
-            positions.push(p.x - nx * w, 0.025, p.z - nz * w)
-            positions.push(p.x + nx * w, 0.025, p.z + nz * w)
+            positions.push(p.x - nx * w, p.y + 0.025, p.z - nz * w)
+            positions.push(p.x + nx * w, p.y + 0.025, p.z + nz * w)
             if (k < M) {
               const a = k * 2
               indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3)
@@ -394,13 +397,44 @@ export class GimmickManager {
               new THREE.MeshBasicMaterial({ color: 0xffd23e }),
             )
             cone.position.set(
-              s2.pos.x + s2.nor.x * sgn * (hw + 1.6), 1.6,
+              s2.pos.x + s2.nor.x * sgn * (hw + 1.6), s2.pos.y + 1.6,
               s2.pos.z + s2.nor.z * sgn * (hw + 1.6),
             )
             cone.rotation.z = Math.PI // 아래를 가리키는 화살표
             this.group.add(cone)
           }
           this.shortcuts.push({ def, samples })
+          break
+        }
+        case 'cannon': {
+          const pad = track.worldAt(def.t, 0)
+          const land = track.worldAt(def.landT, 0)
+          // 발사대: 위로 비스듬한 배럴 + 베이스
+          const base = new THREE.Mesh(
+            new THREE.CylinderGeometry(2.2, 2.6, 0.8, 12),
+            new THREE.MeshLambertMaterial({ color: 0x44507a }),
+          )
+          base.position.set(pad.x, pad.y + 0.4, pad.z)
+          const barrel = new THREE.Mesh(
+            new THREE.CylinderGeometry(1.2, 1.6, 4.4, 10, 1, true),
+            new THREE.MeshLambertMaterial({ color: 0x5a6aa0, side: THREE.DoubleSide }),
+          )
+          // 착지점을 향해 기울임
+          const dir = new THREE.Vector3(land.x - pad.x, 0, land.z - pad.z).normalize()
+          barrel.position.set(pad.x + dir.x * 1.2, pad.y + 2.2, pad.z + dir.z * 1.2)
+          barrel.quaternion.setFromUnitVectors(
+            new THREE.Vector3(0, 1, 0),
+            new THREE.Vector3(dir.x * 0.7, 1, dir.z * 0.7).normalize(),
+          )
+          // 착지 링
+          const ring = new THREE.Mesh(
+            new THREE.RingGeometry(2.2, 3.2, 20),
+            new THREE.MeshBasicMaterial({ color: 0xffd23e, transparent: true, opacity: 0.6, side: THREE.DoubleSide }),
+          )
+          ring.rotation.x = -Math.PI / 2
+          ring.position.set(land.x, land.y + 0.05, land.z)
+          this.group.add(base, barrel, ring)
+          this.cannons.push({ def, pad, land })
           break
         }
         case 'rockfall': {
@@ -415,7 +449,7 @@ export class GimmickManager {
             new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.35 }),
           )
           shadow.rotation.x = -Math.PI / 2
-          shadow.position.set(impact.x, 0.04, impact.z)
+          shadow.position.set(impact.x, impact.y + 0.04, impact.z)
           shadow.visible = false
           this.group.add(rock, shadow)
           this.rockfalls.push({ def, rock, shadow, impact })
@@ -469,7 +503,7 @@ export class GimmickManager {
       if (erupting) {
         const k = 1 - tToErupt / 0.45
         gy.column.scale.y = Math.max(0.001, Math.sin(k * Math.PI))
-        gy.column.position.y = 3.5 * gy.column.scale.y
+        gy.column.position.y = gy.center.y + 3.5 * gy.column.scale.y
       }
     }
     for (const hm of this.hammers) {
@@ -479,7 +513,7 @@ export class GimmickManager {
     }
     for (const pr of this.presses) {
       if (!this.isNear(pr.center, camPos, cull)) continue
-      pr.plate.position.y = pressY(cyclePhase(raceSec, pr.def.period))
+      pr.plate.position.y = pr.center.y + pressY(cyclePhase(raceSec, pr.def.period))
     }
     for (const sb of this.spinbars) {
       if (!this.isNear(sb.center, camPos, cull)) continue
@@ -497,7 +531,7 @@ export class GimmickManager {
       if (tToImpact <= ROCK_DROP) {
         rf.rock.visible = true
         const k = 1 - tToImpact / ROCK_DROP // 0→1 낙하 진행
-        rf.rock.position.set(rf.impact.x, 18 * (1 - k * k), rf.impact.z)
+        rf.rock.position.set(rf.impact.x, rf.impact.y + 18 * (1 - k * k), rf.impact.z)
       } else {
         rf.rock.visible = false
       }
@@ -509,7 +543,7 @@ export class GimmickManager {
         const broken = c.brokenUntil > raceSec
         if (broken === c.shownBroken) continue
         c.shownBroken = broken
-        dummy.position.set(c.pos.x, broken ? -5 : 0.55, c.pos.z)
+        dummy.position.set(c.pos.x, c.pos.y + (broken ? -5 : 0.55), c.pos.z)
         dummy.rotation.y = k * 0.6
         dummy.updateMatrix()
         cg.mesh.setMatrixAt(k, dummy.matrix)
@@ -620,7 +654,7 @@ export class GimmickManager {
       this.cooldown.set(key, raceSec + 3)
       const idx = Math.floor(tp.def.exitT * tr.N)
       const s = tr.sampleAt(idx)
-      kart.pos.set(s.pos.x, 0, s.pos.z)
+      kart.pos.set(s.pos.x, s.pos.y, s.pos.z)
       kart.trackIdx = idx
       kart.heading = Math.atan2(s.tan.x, s.tan.z)
       kart.velDir = kart.heading
@@ -673,6 +707,27 @@ export class GimmickManager {
         kart.applySpin()
         hit.spun = true
       }
+    })
+
+    // D 대포: 패드 진입 → 착지점을 향해 발사 (부스터+점프 조합으로 비행)
+    this.cannons.forEach((cn, i) => {
+      const key = `${actorKey}:cn${i}`
+      if ((this.cooldown.get(key) ?? -1) > raceSec) return
+      const dx0 = kart.pos.x - cn.pad.x
+      const dz0 = kart.pos.z - cn.pad.z
+      if (dx0 * dx0 + dz0 * dz0 > 2.6 * 2.6 || kart.y > 0.5) return
+      this.cooldown.set(key, raceSec + 4)
+      const dx = cn.land.x - kart.pos.x
+      const dz = cn.land.z - kart.pos.z
+      const dist = Math.hypot(dx, dz)
+      kart.heading = Math.atan2(dx, dz)
+      kart.velDir = kart.heading
+      kart.driftDir = 0
+      kart.driftCharge = 0
+      kart.speed = dist / cn.def.flightSec + 4 // 공중 감속 보정 여유
+      kart.boosterT = cn.def.flightSec // 부스터 유지로 속도 보존
+      kart.applyJump(13 * cn.def.flightSec) // 체공시간 ≈ flightSec (g=26)
+      hit.launched = true
     })
 
     // F 낙석: 임팩트 순간(0.25초 창) 반경 안이면 스핀

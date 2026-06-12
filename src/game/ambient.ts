@@ -23,6 +23,7 @@ const CONFS: Record<string, AmbientConf> = {
   beach: { color: 0xfff0c0, size: 0.38, fall: 0.25, drift: 1.6, opacity: 0.5 }, // 햇살 모트
   factory: { color: 0xffd070, size: 0.4, fall: -0.5, drift: 0.9, opacity: 0.7, additive: true, yMax: 12 }, // 떠오르는 불꽃
   sunny: { color: 0xffffff, size: 0.36, fall: 0.45, drift: 1.1, opacity: 0.5 }, // 꽃가루
+  sky: { color: 0xffffff, size: 0.7, fall: 0.2, drift: 2.6, opacity: 0.45 }, // 흘러가는 구름 결
 }
 
 const RANGE = 55 // 카메라 주변 박스 반경

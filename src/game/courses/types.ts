@@ -64,4 +64,10 @@ export interface CourseDef {
   decorSeed: number
   theme: CourseTheme
   gimmicks?: GimmickDef[] // 코스 기믹 (gimmicks.ts가 해석)
+  /** 높이 프로필 — t(0..1)별 도로 높이. 코사인 보간 + 랩 래핑. 없으면 평지 */
+  elevation?: { t: number; h: number }[]
+  /** 뱅크 코너 — 구간 내 lat 1당 높이 기울기(slope). 가장자리 30샘플 이즈 */
+  bank?: { t0: number; t1: number; slope: number }[]
+  /** 하늘 맵: 지면 평면을 구름바다로 멀리 내림 */
+  skyMap?: boolean
 }

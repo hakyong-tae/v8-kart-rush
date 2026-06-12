@@ -92,6 +92,7 @@ export const SCENERY_MODELS: Record<string, string[]> = {
     'nature/grass_large', 'nature/rock_largeA',
     'pirate/palm-detailed-bend', 'pirate/palm-detailed-straight',
   ],
+  sky: ['landmarks/hot-air-balloon', 'nature/tree_default'],
 }
 
 export class Assets {
@@ -927,6 +928,76 @@ export function buildDecorations(track: Track, assets: Assets): THREE.Group {
       scatter(['nature/flower_redA'], [0.9, 1.3], 22, wall + 1.5, wall + 9)
       scatter(['nature/grass_large'], [0.8, 1.3], 30, wall + 1.5, wall + 10)
       scatter(['nature/rock_largeA'], [2.5, 4.5], 8, wall + 3, wall + 14)
+      break
+    }
+    case 'sky': {
+      // 떠 있는 섬들 (역원뿔 바위 + 풀 윗면) — 다양한 높이에
+      for (let k = 0; k < Math.round(14 * preset().decorScale); k++) {
+        const idx = Math.floor(rand() * N)
+        const side = rand() < 0.5 ? 1 : -1
+        const r = 4 + rand() * 7
+        const lat = side * (wall + 14 + r + rand() * 50)
+        const s = track.sampleAt(idx)
+        const p = new THREE.Vector3(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
+        // 섬 가장자리가 도로를 침범하지 않게 반경까지 고려
+        if (Math.abs(track.lateral(p, track.nearestIndex(p))) < hw + 6 + r) continue
+        const islandY = s.pos.y + (rand() - 0.6) * 16 - 6
+        const rock = new THREE.Mesh(
+          new THREE.ConeGeometry(r, r * 1.5, 7),
+          new THREE.MeshLambertMaterial({ color: 0x8a7a6a }),
+        )
+        rock.rotation.x = Math.PI // 역원뿔
+        rock.position.set(p.x, islandY - r * 0.75, p.z)
+        const top = new THREE.Mesh(
+          new THREE.CylinderGeometry(r, r * 0.95, 0.8, 9),
+          new THREE.MeshLambertMaterial({ color: 0x7ed957 }),
+        )
+        top.position.set(p.x, islandY + 0.4, p.z)
+        group.add(rock, top)
+        // 섬 위 나무 한 그루
+        if (rand() < 0.7) {
+          const tree = assets.spawn('nature/tree_default', 4 + rand() * 2)
+          if (tree) {
+            tree.position.set(p.x + (rand() - 0.5) * r * 0.6, islandY + 0.8, p.z + (rand() - 0.5) * r * 0.6)
+            group.add(tree)
+          }
+        }
+      }
+      // 열기구들 — 하늘길의 이정표
+      for (let k = 0; k < 4; k++) {
+        const hb = assets.spawn('landmarks/hot-air-balloon', 9 + rand() * 3)
+        if (!hb) continue
+        const idx = Math.floor(((k + 0.4) / 4) * N)
+        const side = k % 2 === 0 ? 1 : -1
+        const s = track.sampleAt(idx)
+        hb.position.set(
+          s.pos.x + s.nor.x * side * (wall + 22 + rand() * 14),
+          s.pos.y + 16 + rand() * 12,
+          s.pos.z + s.nor.z * side * (wall + 22 + rand() * 14),
+        )
+        group.add(hb)
+      }
+      // 낮은 뭉게구름 (도로 아래로 흘러가는 느낌의 정적 구름)
+      const cloudMat = new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.85 })
+      for (let k = 0; k < Math.round(22 * preset().decorScale); k++) {
+        const idx = Math.floor(rand() * N)
+        const side = rand() < 0.5 ? 1 : -1
+        const lat = side * (wall + 8 + rand() * 55)
+        const s = track.sampleAt(idx)
+        const puff = new THREE.Group()
+        for (let b = 0; b < 3; b++) {
+          const ball = new THREE.Mesh(new THREE.SphereGeometry(2.2 + rand() * 2, 7, 5), cloudMat)
+          ball.position.set((b - 1) * 2.6 + rand(), rand() * 0.8, (rand() - 0.5) * 2)
+          ball.scale.y = 0.55
+          puff.add(ball)
+        }
+        puff.position.set(
+          s.pos.x + s.nor.x * lat,
+          s.pos.y - 10 - rand() * 18,
+          s.pos.z + s.nor.z * lat,
+        )
+        group.add(puff)
+      }
       break
     }
     default:

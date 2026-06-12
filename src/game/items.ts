@@ -93,13 +93,20 @@ export class ItemManager {
     for (const row of track.course.itemRows) {
       for (const lane of row.lanes) {
         const pos = track.worldAt(row.t, lane * track.halfWidth)
-        pos.y = 1.1
+        pos.y += 1.1
         const mesh = new THREE.Mesh(this.boxGeo, this.boxMat.clone())
         mesh.position.copy(pos)
         this.group.add(mesh)
         this.boxes.push({ id: id++, pos, takenUntil: 0, mesh })
       }
     }
+  }
+
+  /** 임의 월드 좌표의 도로 표면 높이 (평지 코스는 0) */
+  private groundAt(x: number, z: number): number {
+    const v = new THREE.Vector3(x, 0, z)
+    const idx = this.track.nearestIndex(v)
+    return this.track.groundY(idx, this.track.lateral(v, idx))
   }
 
   spawnBanana(id: string, x: number, z: number) {
@@ -111,9 +118,10 @@ export class ItemManager {
     arc.rotation.z = Math.PI * 0.55
     arc.position.y = 0.3
     g.add(arc)
-    g.position.set(x, 0, z)
+    const gyB = this.groundAt(x, z)
+    g.position.set(x, gyB, z)
     this.group.add(g)
-    this.bananas.set(id, { id, pos: new THREE.Vector3(x, 0, z), mesh: g })
+    this.bananas.set(id, { id, pos: new THREE.Vector3(x, gyB, z), mesh: g })
   }
 
   removeBanana(id: string) {
@@ -136,9 +144,10 @@ export class ItemManager {
     )
     fuseTip.position.y = 1.15
     g.add(fuseTip)
-    g.position.set(x, 0, z)
+    const gyO = this.groundAt(x, z)
+    g.position.set(x, gyO, z)
     this.group.add(g)
-    this.bombs.set(id, { id, pos: new THREE.Vector3(x, 0, z), fuse: BOMB_FUSE, mesh: g, coreMat })
+    this.bombs.set(id, { id, pos: new THREE.Vector3(x, gyO, z), fuse: BOMB_FUSE, mesh: g, coreMat })
   }
 
   spawnMissile(id: string, owner: string, trackPos: number, lat: number) {
@@ -149,7 +158,7 @@ export class ItemManager {
     mesh.add(body)
     const m: Missile = { id, owner, trackPos, lat, ttl: 7, mesh, armed: 0.45 }
     const p = this.track.worldAt((trackPos / this.track.N) % 1, lat)
-    mesh.position.set(p.x, 0.8, p.z)
+    mesh.position.set(p.x, p.y + 0.8, p.z)
     this.group.add(mesh)
     this.missiles.set(id, m)
   }
@@ -167,7 +176,7 @@ export class ItemManager {
       new THREE.SphereGeometry(1, 14, 10),
       new THREE.MeshBasicMaterial({ color: 0xff9a33, transparent: true, opacity: 0.85 }),
     )
-    mesh.position.set(pos.x, 1, pos.z)
+    mesh.position.set(pos.x, pos.y + 1, pos.z)
     this.group.add(mesh)
     this.explosions.push({ mesh, t: 0 })
     for (const a of actors) {
@@ -256,7 +265,7 @@ export class ItemManager {
       const t = (m.trackPos / this.track.N) % 1
       const p = this.track.worldAt(t, m.lat)
       const s = this.track.sampleAt(Math.floor(m.trackPos))
-      m.mesh.position.set(p.x, 0.8, p.z)
+      m.mesh.position.set(p.x, p.y + 0.8, p.z)
       m.mesh.rotation.y = Math.atan2(s.tan.x, s.tan.z)
 
       for (const a of actors) {

@@ -96,7 +96,7 @@ export class Kart {
     const cpIdx = Math.floor(((this.nextCp - 1 + NUM_CHECKPOINTS) % NUM_CHECKPOINTS) / NUM_CHECKPOINTS * this.track.N)
     const idx = this.cpTotal === 0 ? this.track.spawnPose(0).idx : cpIdx
     const s = this.track.sampleAt(idx)
-    this.pos.set(s.pos.x, 0, s.pos.z)
+    this.pos.set(s.pos.x, s.pos.y, s.pos.z)
     this.heading = Math.atan2(s.tan.x, s.tan.z)
     this.velDir = this.heading
     this.speed = 0
@@ -281,6 +281,8 @@ export class Kart {
     // vertical: jumps, and falling into pits (cliffs / water)
     this.trackIdx = this.track.nearestIndex(this.pos, this.trackIdx)
     const lat2 = this.track.lateral(this.pos, this.trackIdx)
+    // pos.y = 발밑 도로 표면 높이 (고저차/뱅크 코스). kart.y는 그 위 상대 높이
+    this.pos.y = this.track.groundY(this.trackIdx, lat2)
     const onAux2 = this.track.auxRoadFn?.(this.pos) ?? false
     const overPit = this.track.isPit(this.trackIdx, lat2) && !onAux2
     if (!this.airborne && overPit && this.y <= 0.01) {
