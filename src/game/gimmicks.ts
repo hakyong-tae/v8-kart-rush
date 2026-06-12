@@ -35,7 +35,7 @@ export function spinbarAngle(raceSec: number, period: number): number {
 
 // ---- runtime ----
 interface BumperRT { def: Extract<GimmickDef, { type: 'bumper' }>; mesh: THREE.Mesh; center: THREE.Vector3 }
-interface CrateRT { pos: THREE.Vector3; brokenUntil: number }
+interface CrateRT { pos: THREE.Vector3; brokenUntil: number; shownBroken: boolean }
 interface CratesRT { def: Extract<GimmickDef, { type: 'crates' }>; mesh: THREE.InstancedMesh; crates: CrateRT[] }
 interface TurntableRT { def: Extract<GimmickDef, { type: 'turntable' }>; mesh: THREE.Mesh; center: THREE.Vector3 }
 interface SpinbarRT { def: Extract<GimmickDef, { type: 'spinbar' }>; pivot: THREE.Group; center: THREE.Vector3; halfLen: number }
@@ -124,7 +124,7 @@ export class GimmickManager {
           const crates: CrateRT[] = []
           for (let k = 0; k < def.count; k++) {
             const p = this.track.worldAt(def.t + k * 0.004, def.lane * hw)
-            crates.push({ pos: p, brokenUntil: -1 })
+            crates.push({ pos: p, brokenUntil: -1, shownBroken: false })
             dummy.position.set(p.x, 0.55, p.z)
             dummy.rotation.y = k * 0.6
             dummy.updateMatrix()
@@ -207,22 +207,24 @@ export class GimmickManager {
     })
   }
 
+  private isNear(p: THREE.Vector3, camPos: THREE.Vector3, cullDist: number): boolean {
+    return (p.x - camPos.x) ** 2 + (p.z - camPos.z) ** 2 < cullDist * cullDist
+  }
+
   /** 매 프레임 시각 갱신 — raceSec의 순수 함수. camPos에서 먼 것은 컬링. */
   updateVisuals(raceSec: number, camPos: THREE.Vector3) {
     const cull = preset().gimmickCullDist
-    const near = (p: THREE.Vector3) =>
-      (p.x - camPos.x) ** 2 + (p.z - camPos.z) ** 2 < cull * cull
 
     for (const sb of this.spinbars) {
-      if (!near(sb.center)) continue
+      if (!this.isNear(sb.center, camPos, cull)) continue
       sb.pivot.rotation.y = spinbarAngle(raceSec, sb.def.period)
     }
     for (const tt of this.turntables) {
-      if (!near(tt.center)) continue
+      if (!this.isNear(tt.center, camPos, cull)) continue
       tt.mesh.rotation.y = raceSec * tt.def.spin
     }
     for (const rf of this.rockfalls) {
-      if (!near(rf.impact)) { rf.rock.visible = false; rf.shadow.visible = false; continue }
+      if (!this.isNear(rf.impact, camPos, cull)) { rf.rock.visible = false; rf.shadow.visible = false; continue }
       const phase = cyclePhase(raceSec, rf.def.period) * rf.def.period // 초 단위
       const tToImpact = rf.def.period - phase
       rf.shadow.visible = tToImpact <= rf.def.warnSec + ROCK_DROP && tToImpact > 0.05
@@ -235,14 +237,19 @@ export class GimmickManager {
       }
     }
     for (const cg of this.crates) {
-      cg.crates.forEach((c, k) => {
+      let dirty = false
+      for (let k = 0; k < cg.crates.length; k++) {
+        const c = cg.crates[k]
         const broken = c.brokenUntil > raceSec
+        if (broken === c.shownBroken) continue
+        c.shownBroken = broken
         dummy.position.set(c.pos.x, broken ? -5 : 0.55, c.pos.z)
         dummy.rotation.y = k * 0.6
         dummy.updateMatrix()
         cg.mesh.setMatrixAt(k, dummy.matrix)
-      })
-      cg.mesh.instanceMatrix.needsUpdate = true
+        dirty = true
+      }
+      if (dirty) cg.mesh.instanceMatrix.needsUpdate = true
     }
     if (this.tide && this.ocean) {
       const lvl = Math.sin((raceSec / this.tide.def.period) * Math.PI * 2) // -1..1
