@@ -33,6 +33,28 @@ export function spinbarAngle(raceSec: number, period: number): number {
   return cyclePhase(raceSec, period) * Math.PI * 2
 }
 
+/** 가라앉는 다리 높이: phase<duty 동안 0(견고), 0.08 동안 침하 → -6, 0.92부터 복귀 */
+export function bridgeY(phase: number, duty: number): number {
+  const SINK = 0.08
+  if (phase < duty) return 0
+  if (phase < duty + SINK) return -6 * ((phase - duty) / SINK)
+  if (phase < 0.92) return -6
+  return -6 * (1 - (phase - 0.92) / 0.08)
+}
+
+/** 다리를 밟고 달릴 수 있는가 (살짝 가라앉는 중까지는 OK) */
+export function bridgeSolid(phase: number, duty: number): boolean {
+  return bridgeY(phase, duty) > -1.2
+}
+
+/** 프레스 플레이트 높이: 대부분 3.2(위), phase 0.8~0.86 급강하 → 0.5, 0.94부터 복귀 */
+export function pressY(phase: number): number {
+  if (phase < 0.8) return 3.2
+  if (phase < 0.86) return 3.2 - 2.7 * ((phase - 0.8) / 0.06)
+  if (phase < 0.94) return 0.5
+  return 0.5 + 2.7 * ((phase - 0.94) / 0.06)
+}
+
 // ---- runtime ----
 interface BumperRT { def: Extract<GimmickDef, { type: 'bumper' }>; mesh: THREE.Mesh; center: THREE.Vector3 }
 interface CrateRT { pos: THREE.Vector3; brokenUntil: number; shownBroken: boolean }
@@ -167,8 +189,10 @@ export class GimmickManager {
         }
         case 'teleport': {
           // 게이트는 같은 체크포인트 구간 안에서만 이동해야 랩/역주행 로직이 안전하다
-          const cpIn = Math.floor(def.t * NUM_CHECKPOINTS) % NUM_CHECKPOINTS
-          const cpOut = Math.floor(def.exitT * NUM_CHECKPOINTS) % NUM_CHECKPOINTS
+          const cpOf = (t: number) =>
+            Math.floor((Math.floor(t * track.N) / track.N) * NUM_CHECKPOINTS) % NUM_CHECKPOINTS
+          const cpIn = cpOf(def.t)
+          const cpOut = cpOf(def.exitT)
           if (cpIn !== cpOut)
             throw new Error(`teleport gimmick crosses checkpoint sectors (${cpIn}→${cpOut})`)
           const mkGate = (t: number, color: number) => {

@@ -1,6 +1,6 @@
 // src/game/gimmicks.test.ts
 import { describe, it, expect } from 'vitest'
-import { inSplineRange, cyclePhase, spinbarAngle } from './gimmicks'
+import { inSplineRange, cyclePhase, spinbarAngle, bridgeY, bridgeSolid, pressY } from './gimmicks'
 
 describe('inSplineRange', () => {
   it('plain range', () => {
@@ -38,5 +38,28 @@ describe('boundaries', () => {
   it('inSplineRange exact endpoints inclusive', () => {
     expect(inSplineRange(0.4, 0.4, 0.6)).toBe(true)
     expect(inSplineRange(0.6, 0.4, 0.6)).toBe(true)
+  })
+})
+
+describe('sinkroad bridge', () => {
+  it('solid while phase < duty', () => {
+    expect(bridgeY(0.0, 0.55)).toBe(0)
+    expect(bridgeY(0.54, 0.55)).toBe(0)
+    expect(bridgeSolid(0.3, 0.55)).toBe(true)
+  })
+  it('sunk mid-cycle, rises at end', () => {
+    expect(bridgeY(0.8, 0.55)).toBe(-6)
+    expect(bridgeSolid(0.8, 0.55)).toBe(false)
+    expect(bridgeY(0.96, 0.55)).toBeGreaterThan(-6)
+    expect(bridgeY(1.0 - 1e-9, 0.55)).toBeCloseTo(0, 1)
+  })
+})
+
+describe('press', () => {
+  it('up most of the cycle, slams in window', () => {
+    expect(pressY(0.3)).toBe(3.2)
+    expect(pressY(0.83)).toBeLessThan(3.2)
+    expect(pressY(0.9)).toBe(0.5)
+    expect(pressY(0.97)).toBeGreaterThan(0.5)
   })
 })
