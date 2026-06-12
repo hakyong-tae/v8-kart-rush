@@ -51,6 +51,7 @@ export const SCENERY_MODELS: Record<string, string[]> = {
     'nature/tree_pineRoundA', 'nature/plant_bushLarge', 'nature/plant_bushDetailed',
     'nature/flower_redA', 'nature/flower_yellowA', 'nature/rock_smallA', 'nature/rock_smallE',
     'nature/mushroom_redGroup', 'nature/grass_large',
+    'landmarks/windmill', 'landmarks/hot-air-balloon',
   ],
   canyon: [
     'nature/rock_tallA', 'nature/rock_tallD', 'nature/rock_tallG', 'nature/rock_largeA',
@@ -65,12 +66,13 @@ export const SCENERY_MODELS: Record<string, string[]> = {
   beach: [
     'pirate/palm-detailed-bend', 'pirate/palm-detailed-straight', 'pirate/palm-bend',
     'pirate/palm-straight', 'pirate/rocks-sand-a', 'pirate/rocks-sand-b', 'pirate/rocks-sand-c',
-    'pirate/ship-pirate-medium', 'pirate/boat-row-large',
+    'pirate/ship-pirate-medium', 'pirate/boat-row-large', 'landmarks/lighthouse',
   ],
   neon: [
     'city/building-a', 'city/building-c', 'city/building-e', 'city/building-g',
     'city/building-i', 'city/building-k', 'city/building-n',
     'city/building-skyscraper-a', 'city/building-skyscraper-c', 'city/building-skyscraper-e',
+    'landmarks/ferris-wheel',
   ],
   // poly.pizza CC0/CC-BY — 크레딧: public/models/SCENERY-CREDITS.md
   volcano: [
@@ -588,6 +590,16 @@ export function buildDecorations(track: Track, assets: Assets): THREE.Group {
       boat.rotation.y = rand() * Math.PI * 2
       group.add(boat)
     }
+    // 먼바다 등대 섬
+    {
+      const lh = assets.spawn('landmarks/lighthouse', 24)
+      if (lh) {
+        const s = track.sampleAt(Math.floor(0.55 * N))
+        lh.position.set(s.pos.x + s.nor.x * (wall + 38), -1.1, s.pos.z + s.nor.z * (wall + 38))
+        lh.rotation.y = Math.atan2(-s.nor.x, -s.nor.z)
+        group.add(lh)
+      }
+    }
     return group
   }
 
@@ -622,11 +634,28 @@ export function buildDecorations(track: Track, assets: Assets): THREE.Group {
 
   // Per-course scenery (premium Kenney kits — see SCENERY_MODELS)
   switch (track.course.id) {
-    case 'sunny':
+    case 'sunny': {
+      // 랜드마크: 언덕 위 풍차 + 떠 있는 열기구 2개
+      const wm = assets.spawn('landmarks/windmill', 20)
+      if (wm) {
+        const s = track.sampleAt(Math.floor(0.38 * N))
+        const lat = wall + 26
+        wm.position.set(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
+        wm.rotation.y = Math.atan2(-s.nor.x, -s.nor.z)
+        group.add(wm)
+      }
+      for (let k = 0; k < 2; k++) {
+        const hb = assets.spawn('landmarks/hot-air-balloon', 9)
+        if (!hb) continue
+        const s = track.sampleAt(Math.floor((0.15 + k * 0.45) * N))
+        const side = k % 2 === 0 ? 1 : -1
+        hb.position.set(s.pos.x + s.nor.x * side * (wall + 30), 26 + k * 7, s.pos.z + s.nor.z * side * (wall + 30))
+        group.add(hb)
+      }
       scatter(
         ['nature/tree_default', 'nature/tree_detailed', 'nature/tree_oak', 'nature/tree_fat', 'nature/tree_pineRoundA'],
         [5.5, 9],
-        55,
+        70,
         wall + 4,
         wall + 55,
       )
@@ -636,9 +665,10 @@ export function buildDecorations(track: Track, assets: Assets): THREE.Group {
       scatter(['nature/mushroom_redGroup'], [0.9, 1.4], 8, wall + 2, wall + 16)
       scatter(['nature/grass_large'], [0.8, 1.2], 30, wall + 1.5, wall + 18)
       break
+    }
     case 'canyon':
       // mesa country: towering rock formations + cacti
-      scatter(['nature/rock_tallA', 'nature/rock_tallD', 'nature/rock_tallG'], [9, 18], 26, wall + 8, wall + 55)
+      scatter(['nature/rock_tallA', 'nature/rock_tallD', 'nature/rock_tallG'], [9, 18], 36, wall + 8, wall + 60)
       scatter(['nature/rock_largeA', 'nature/rock_largeD'], [4, 7], 16, wall + 4, wall + 35)
       scatter(['nature/cactus_short', 'nature/cactus_tall'], [2, 3.6], 22, wall + 2, wall + 28)
       scatter(['nature/rock_smallA', 'nature/rock_smallE'], [1, 2], 16, wall + 2, wall + 20)
@@ -697,6 +727,25 @@ export function buildDecorations(track: Track, assets: Assets): THREE.Group {
           }
         })
         group.add(b)
+      }
+      // 야경 관람차 — 스카이라인 한 켠에서 빛난다
+      {
+        const fw = assets.spawn('landmarks/ferris-wheel', 32)
+        if (fw) {
+          const s = track.sampleAt(Math.floor(0.45 * N))
+          fw.position.set(s.pos.x + s.nor.x * (wall + 30), 0, s.pos.z + s.nor.z * (wall + 30))
+          fw.rotation.y = Math.atan2(-s.nor.x, -s.nor.z)
+          fw.traverse((o) => {
+            const mesh = o as THREE.Mesh
+            if (!mesh.isMesh) return
+            const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+            for (const m of mats) {
+              const std = m as THREE.MeshStandardMaterial
+              if (std.isMeshStandardMaterial) std.emissive?.setHex(0x33203a)
+            }
+          })
+          group.add(fw)
+        }
       }
       break
     }

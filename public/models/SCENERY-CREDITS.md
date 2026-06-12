@@ -29,3 +29,9 @@ CC0 models need no attribution but are listed for completeness. CC-BY models req
 - Temple Entrance (temple-entrance.glb) — Steingrímur Jónsson, CC-BY 3.0, https://poly.pizza/m/ajef1XE6Dwm
 - Temple of Prophecy: Ruined (temple-ruined.glb) — Duncan Anderson, CC-BY 3.0, https://poly.pizza/m/7LV6QMkGBNo
 - Statue (statue.glb) — Zsky, CC-BY 3.0, https://poly.pizza/m/JXmywADgSk
+
+## landmarks/
+- Windmill (windmill.glb) — Poly by Google, CC-BY 3.0, https://poly.pizza/m/ctIRaIM3zXu
+- Lighthouse (lighthouse.glb) — Poly by Google, CC-BY 3.0, https://poly.pizza/m/7H8is9jrGeB
+- Hot air balloon (hot-air-balloon.glb) — Poly by Google, CC-BY 3.0, https://poly.pizza/m/8azSIUgP0ow
+- Ferris Wheel (ferris-wheel.glb) — CreativeTrio, CC0 1.0, https://poly.pizza/m/6CepsZjXBw
