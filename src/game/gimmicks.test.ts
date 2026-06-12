@@ -26,3 +26,17 @@ describe('determinism', () => {
     expect(spinbarAngle(2, 4)).toBeCloseTo(Math.PI)
   })
 })
+
+describe('boundaries', () => {
+  it('cyclePhase wraps to 0 at exact period multiples', () => {
+    expect(cyclePhase(5, 5)).toBe(0)
+    expect(cyclePhase(0, 5)).toBe(0)
+  })
+  it('spinbarAngle wraps to 0 (not 2π) at period boundary', () => {
+    expect(spinbarAngle(4, 4)).toBe(0)
+  })
+  it('inSplineRange exact endpoints inclusive', () => {
+    expect(inSplineRange(0.4, 0.4, 0.6)).toBe(true)
+    expect(inSplineRange(0.6, 0.4, 0.6)).toBe(true)
+  })
+})
