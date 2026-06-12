@@ -3,6 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { Track, rng } from './track'
 import type { CharacterDef } from './roster'
 import { ADS, makeAdBoard } from './ads'
+import { preset } from './perf'
 
 // Kart bodies (poly.pizza, see public/models/karts/CREDITS.md) + Kenney kits
 const MODEL_NAMES = [
@@ -487,7 +488,7 @@ export function buildDecorations(track: Track, assets: Assets): THREE.Group {
     latMax: number,
     y = 0,
   ) => {
-    for (let k = 0; k < count; k++) {
+    for (let k = 0; k < Math.max(1, Math.round(count * preset().decorScale)); k++) {
       const idx = Math.floor(rand() * N)
       const side = rand() < 0.5 ? 1 : -1
       const lat = side * (latMin + rand() * (latMax - latMin))

@@ -1,5 +1,6 @@
 // Sprite particle system using Kenney Particle Pack textures (CC0, public/fx/).
 import * as THREE from 'three'
+import { preset } from './perf'
 
 const TEXTURES = {
   smokeA: 'fx/smoke_04.png',
@@ -26,7 +27,7 @@ interface Particle {
   gravity: number
 }
 
-const MAX_PARTICLES = 160
+const MAX_PARTICLES = Math.round(160 * preset().particleScale)
 
 export class Particles {
   private textures = new Map<TexName, THREE.Texture>()

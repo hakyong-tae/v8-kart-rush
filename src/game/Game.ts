@@ -12,6 +12,7 @@ import { getLang } from '../i18n'
 import { ADS, makeAdBalloon, AD_LAYER } from './ads'
 import { Particles } from './particles'
 import { KartVisual } from './kartVisual'
+import { preset } from './perf'
 
 // Car Kit vehicles natively face +Z (front wheels at +z) — same as our heading axis.
 
@@ -255,7 +256,7 @@ export class Game {
     const theme = this.course.theme
 
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true })
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, preset().pixelRatio))
     this.camera = new THREE.PerspectiveCamera(72, 1, 0.1, 900)
     this.camera.layers.enable(AD_LAYER) // ads visible on the main view only (mirror cam skips them)
     this.resize()

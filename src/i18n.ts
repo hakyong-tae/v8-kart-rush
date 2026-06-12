@@ -113,6 +113,11 @@ const DICT = {
   actReset: { en: 'Reset to track', ko: '트랙 복귀' },
   loading: { en: 'Loading assets...', ko: '에셋 로딩 중...' },
   joinFailed: { en: 'Failed to join the room. Please retry.', ko: '방 입장에 실패했습니다. 다시 시도해 주세요.' },
+  graphics: { en: 'Graphics', ko: '그래픽 품질' },
+  qLow: { en: 'Low', ko: '낮음' },
+  qMid: { en: 'Medium', ko: '중간' },
+  qHigh: { en: 'High', ko: '높음' },
+  qualityNote: { en: 'Applied on next race', ko: '다음 레이스부터 적용' },
 } as const
 
 export type I18nKey = keyof typeof DICT

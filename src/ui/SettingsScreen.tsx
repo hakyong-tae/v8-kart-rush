@@ -9,6 +9,7 @@ import {
   type Action,
 } from '../game/keymap'
 import { useI18n, type Lang } from '../i18n'
+import { getQuality, setQuality, type Quality } from '../game/perf'
 
 const ACTION_LABEL_KEY: Record<Action, 'actAccel' | 'actBrake' | 'actLeft' | 'actRight' | 'actDrift' | 'actItem' | 'actReset'> = {
   accel: 'actAccel',
@@ -26,6 +27,7 @@ export function SettingsScreen({ onClose }: { onClose: () => void }) {
   const [sfx, setSfx] = useState(Math.round(audio.sfxVol * 100))
   const [capturing, setCapturing] = useState<Action | null>(null)
   const [, bump] = useState(0) // re-render after rebinding
+  const [quality, setQualityState] = useState<Quality>(getQuality())
 
   // key capture for rebinding
   useEffect(() => {
@@ -89,6 +91,21 @@ export function SettingsScreen({ onClose }: { onClose: () => void }) {
                 {l === 'en' ? 'English' : '한국어'}
               </button>
             ))}
+          </div>
+        </div>
+        <div className="setting-row">
+          <span className="setting-label">{t('graphics')}</span>
+          <div className="row gap">
+            {(['low', 'mid', 'high'] as Quality[]).map((q) => (
+              <button
+                key={q}
+                className={`btn small ${quality === q ? 'on' : ''}`}
+                onClick={() => { setQuality(q); setQualityState(q) }}
+              >
+                {t(q === 'low' ? 'qLow' : q === 'mid' ? 'qMid' : 'qHigh')}
+              </button>
+            ))}
+            <span className="setting-val">{t('qualityNote')}</span>
           </div>
         </div>
       </div>
