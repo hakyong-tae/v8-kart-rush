@@ -30,6 +30,8 @@ export class Track {
   wallDist: number // guardrail distance from centerline
   totalLength: number
   pitLatShift = 0 // 밀물/썰물: open 맵 익사 경계를 동적으로 이동 (GimmickManager가 설정)
+  /** 동적 pit (가라앉은 다리 등) — GimmickManager가 설정. true면 폭 전체가 pit */
+  dynamicPitFn: ((idx: number) => boolean) | null = null
 
   constructor(course: CourseDef) {
     this.course = course
@@ -121,9 +123,10 @@ export class Track {
   /** Is this position over a pit (cliff / open water)? Falling here calls the rescuer. */
   isPit(idx: number, lat: number): boolean {
     const c = this.course
+    const i = ((idx % this.N) + this.N) % this.N
+    if (this.dynamicPitFn?.(i)) return true // 가라앉은 다리: 폭 전체가 구멍
     if (c.open && c.ocean) return Math.abs(lat) > this.wallDist + 0.5 + this.pitLatShift
     if (Math.abs(lat) <= this.halfWidth + 1.6) return false
-    const i = ((idx % this.N) + this.N) % this.N
     for (const p of c.pits) {
       const i0 = p.t0 * this.N
       const i1 = p.t1 * this.N
@@ -241,6 +244,14 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
   const group = new THREE.Group()
   const hw = track.halfWidth
 
+  // sinkroad(무너지는 다리) 구간은 베이스 도로를 절개 — 다리 메시는 GimmickManager가 그린다
+  const sinkRanges = (course.gimmicks ?? [])
+    .filter((g) => g.type === 'sinkroad')
+    .map((g) => [Math.floor(g.t0 * track.N), Math.floor(g.t1 * track.N)] as const)
+  const inGap = sinkRanges.length
+    ? (i: number) => sinkRanges.some(([a, b]) => i >= a && i <= b)
+    : undefined
+
   // Ground — open island maps are a sand RING around the course; beyond the
   // buoy line (and across the deep infield) is open water you can fall into.
   let ocean: THREE.Mesh | undefined
@@ -278,6 +289,7 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
       () => hw,
       0,
       (i) => (Math.floor(i / 12) % 2 === 0 ? roadCol : roadCol2),
+      inGap,
     ),
     new THREE.MeshLambertMaterial({ vertexColors: true }),
   )
@@ -288,11 +300,11 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
   const curbB = new THREE.Color(theme.curbB)
   const curbColor = (i: number) => (Math.floor(i / 7) % 2 === 0 ? curbA : curbB)
   const curbL = new THREE.Mesh(
-    makeStrip(track, () => hw, () => hw + 1.1, 0.02, curbColor),
+    makeStrip(track, () => hw, () => hw + 1.1, 0.02, curbColor, inGap),
     new THREE.MeshLambertMaterial({ vertexColors: true }),
   )
   const curbR = new THREE.Mesh(
-    makeStrip(track, () => -hw - 1.1, () => -hw, 0.02, curbColor),
+    makeStrip(track, () => -hw - 1.1, () => -hw, 0.02, curbColor, inGap),
     new THREE.MeshLambertMaterial({ vertexColors: true }),
   )
   group.add(curbL, curbR)
@@ -402,7 +414,7 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
   // Center dashed line
   const lineCol = new THREE.Color(theme.line)
   const line = new THREE.Mesh(
-    makeStrip(track, () => -0.18, () => 0.18, 0.015, () => lineCol),
+    makeStrip(track, () => -0.18, () => 0.18, 0.015, () => lineCol, inGap),
     new THREE.MeshBasicMaterial({
       vertexColors: true,
       transparent: true,

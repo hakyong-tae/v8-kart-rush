@@ -16,6 +16,10 @@ export type GimmickDef =
   | { type: 'spinbar'; t: number; period: number } // 회전 바 (period: 1회전 초)
   | { type: 'teleport'; t: number; exitT: number } // 게이트 (같은 체크포인트 구간 내만!)
   | { type: 'rockfall'; t: number; lane: number; period: number; warnSec: number } // 낙석
+  | { type: 'sinkroad'; t0: number; t1: number; period: number; duty: number; floor?: number } // 무너지는 다리 (duty < 0.84, floor: 아래 용암/물 색)
+  | { type: 'geyser'; t: number; lane: number; period: number; warnSec: number } // 간헐천 — 분출 타면 점프
+  | { type: 'hammer'; t: number; lane: number; period: number; variant?: 'hammer' | 'log' } // 진자 해머/통나무
+  | { type: 'press'; t: number; lane: number; period: number } // 프레스
 
 /** 스플라인 t(0..1) 범위 판정 — 랩 경계(1→0) 래핑 지원 */
 export function inSplineRange(tFrac: number, t0: number, t1: number): boolean {
@@ -33,7 +37,7 @@ export function spinbarAngle(raceSec: number, period: number): number {
   return cyclePhase(raceSec, period) * Math.PI * 2
 }
 
-/** 가라앉는 다리 높이: phase<duty 동안 0(견고), 0.08 동안 침하 → -6, 0.92부터 복귀 */
+/** 가라앉는 다리 높이: phase<duty 동안 0(견고), 0.08 동안 침하 → -6, 0.92부터 복귀. duty < 0.84 전제 */
 export function bridgeY(phase: number, duty: number): number {
   const SINK = 0.08
   if (phase < duty) return 0
