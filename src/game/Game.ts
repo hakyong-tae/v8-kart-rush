@@ -13,6 +13,7 @@ import { ADS, makeAdBalloon, AD_LAYER } from './ads'
 import { Particles } from './particles'
 import { KartVisual } from './kartVisual'
 import { preset } from './perf'
+import { GimmickManager } from './gimmicks'
 
 // Car Kit vehicles natively face +Z (front wheels at +z) — same as our heading axis.
 
@@ -240,6 +241,7 @@ export class Game {
   private snapAcc = 0
   private disposed = false
   private padCooldown = new Map<string, number>()
+  private gimmicks!: GimmickManager
   private boostFlame: THREE.Mesh
   private sparkL: THREE.Mesh
   private sparkR: THREE.Mesh
@@ -269,8 +271,10 @@ export class Game {
     sun.position.set(80, 120, 40)
     this.scene.add(sun)
 
-    const { group } = buildTrackMeshes(this.track)
+    const { group, ocean } = buildTrackMeshes(this.track)
     this.scene.add(group)
+    this.gimmicks = new GimmickManager(this.track, ocean)
+    this.scene.add(this.gimmicks.group)
     this.scene.add(buildDecorations(this.track, this.assets))
     if (!theme.night) this.scene.add(makeClouds(this.course.decorSeed))
 
@@ -796,6 +800,7 @@ export class Game {
     }
 
     const canDrive = this.phase !== 'countdown'
+    const raceSec = this.goTime > 0 ? (now - this.goTime) / 1000 : 0
 
     this.updateAiInputs(now)
 
@@ -899,6 +904,23 @@ export class Game {
             if (pa.key === 'me') audio.driftTick(1)
           }
         })
+        // gimmicks (player + AIs; remotes are victim-authoritative on their end)
+        const gh = this.gimmicks.applyToActor(pa.key, pa.kart, raceSec, dt)
+        if (pa.key === 'me') {
+          if (gh.spun) {
+            audio.hit()
+            this.camShake = Math.max(this.camShake, 0.3)
+          }
+          if (gh.bounced) {
+            audio.wallBump()
+            this.camShake = Math.max(this.camShake, 0.22)
+          }
+          if (gh.teleported) audio.boost()
+          if (gh.smashedCrate) {
+            audio.wallBump()
+            this.particles.landingDust(gh.smashedCrate)
+          }
+        }
       }
     }
 
@@ -1125,6 +1147,7 @@ export class Game {
 
     this.updateKartVisual(now, dt)
     this.updateCamera(dt)
+    this.gimmicks.updateVisuals(raceSec, this.camera.position)
     audio.setEngine(this.kart.speed, 27, this.input.state.throttle)
     this.renderer.render(this.scene, this.camera)
 
