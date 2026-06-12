@@ -28,7 +28,7 @@ export const factory: CourseDef = {
   ],
   boostPads: [
     { t: 0.597, len: 0.016 }, // 시케인 탈출
-    { t: 0.977, len: 0.014 }, // 피니시 직전
+    { t: 0.945, len: 0.014 }, // 피니시 진입 (스폰 그리드 0.974~ 와 겹치지 않게)
   ],
   jumpPads: [],
   pits: [],
