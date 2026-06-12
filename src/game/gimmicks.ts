@@ -64,7 +64,7 @@ export class GimmickManager {
   private teleports: TeleportRT[] = []
   private rockfalls: RockfallRT[] = []
   private tide: TideRT | null = null
-  private cooldown = new Map<string, number>() // `${actor}:${i}` → raceSec until // used by applyToActor (next task)
+  private cooldown = new Map<string, number>() // `${actor}:${i}` → raceSec until
 
   constructor(
     private track: Track,
@@ -256,5 +256,125 @@ export class GimmickManager {
       this.ocean.position.y = -1.4 + lvl * this.tide.def.range * 0.4
       this.track.pitLatShift = -lvl * this.tide.def.range // 만조 = 모래 폭 감소
     }
+  }
+
+  /**
+   * 물리 스텝마다 호출 — kart를 변형하고 발생 이벤트를 돌려준다.
+   * actorKey는 쿨다운 키 ('me', AI id 등). 원격 카트에는 호출하지 않는다(피해자 권한).
+   */
+  applyToActor(actorKey: string, kart: Kart, raceSec: number, dt: number): GimmickHit {
+    const hit: GimmickHit = { spun: false, bounced: false, teleported: false, smashedCrate: null }
+    const tr = this.track
+    const tFrac = kart.trackIdx / tr.N
+    const lat = tr.lateral(kart.pos, kart.trackIdx)
+    const onRoad = Math.abs(lat) < tr.halfWidth
+
+    // E 머드: 노면 감속 (부스터 중에는 절반만)
+    for (const m of this.mud) {
+      if (!inSplineRange(tFrac, m.t0, m.t1) || !onRoad || kart.y > 0.2) continue
+      if (m.side && Math.sign(lat) !== m.side) continue
+      const boosting = kart.boostT > 0 || kart.boosterT > 0
+      if (kart.speed > 11) kart.speed *= Math.exp(-(boosting ? 1.1 : 2.4) * dt)
+    }
+
+    // E 컨베이어/급류: 트랙 접선 방향으로 민다
+    for (const c of this.conveyor) {
+      if (!inSplineRange(tFrac, c.t0, c.t1) || !onRoad || kart.y > 0.2) continue
+      const s = tr.sampleAt(kart.trackIdx)
+      kart.pos.x += s.tan.x * c.dir * c.push * dt
+      kart.pos.z += s.tan.z * c.dir * c.push * dt
+    }
+
+    // G 범퍼: 중심에서 바깥으로 튕겨냄
+    for (const b of this.bumpers) {
+      const dx = kart.pos.x - b.center.x
+      const dz = kart.pos.z - b.center.z
+      const d2 = dx * dx + dz * dz
+      if (d2 > 2.3 * 2.3 || d2 < 1e-6 || kart.y > 0.8) continue
+      const d = Math.sqrt(d2)
+      kart.pos.x += (dx / d) * (2.3 - d)
+      kart.pos.z += (dz / d) * (2.3 - d)
+      kart.velDir = Math.atan2(dx, dz)
+      kart.speed = Math.max(13, kart.speed * 0.75)
+      kart.driftDir = 0
+      kart.driftCharge = 0
+      hit.bounced = true
+    }
+
+    // G 상자: 부수면 살짝 감속, 6초 후 리스폰
+    for (const cg of this.crates) {
+      for (const c of cg.crates) {
+        if (c.brokenUntil > raceSec) continue
+        const dx = kart.pos.x - c.pos.x
+        const dz = kart.pos.z - c.pos.z
+        if (dx * dx + dz * dz > 1.4 * 1.4 || kart.y > 0.9) continue
+        c.brokenUntil = raceSec + 6
+        kart.speed *= 0.84
+        hit.smashedCrate = c.pos
+      }
+    }
+
+    // G 턴테이블: 위에 있으면 회전당함
+    for (const tt of this.turntables) {
+      const dx = kart.pos.x - tt.center.x
+      const dz = kart.pos.z - tt.center.z
+      if (dx * dx + dz * dz > tt.def.radius * tt.def.radius || kart.y > 0.3) continue
+      kart.heading += tt.def.spin * dt
+      kart.velDir += tt.def.spin * dt * 0.75
+    }
+
+    // A 회전 바: 바 선분과 거리 체크 → 스핀 (개인 쿨다운 2초)
+    this.spinbars.forEach((sb, i) => {
+      const key = `${actorKey}:sb${i}`
+      if ((this.cooldown.get(key) ?? -1) > raceSec || kart.spinT > 0 || kart.y > 0.9) return
+      const ang = spinbarAngle(raceSec, sb.def.period)
+      const bx = Math.sin(ang + Math.PI / 2) // bar local +X의 월드 방향
+      const bz = Math.cos(ang + Math.PI / 2)
+      const dx = kart.pos.x - sb.center.x
+      const dz = kart.pos.z - sb.center.z
+      const along = dx * bx + dz * bz // 바 축 투영
+      if (Math.abs(along) > sb.halfLen) return
+      const px = sb.center.x + bx * along
+      const pz = sb.center.z + bz * along
+      const dist = Math.hypot(kart.pos.x - px, kart.pos.z - pz)
+      if (dist < 1.0) {
+        this.cooldown.set(key, raceSec + 2)
+        kart.applySpin()
+        hit.spun = true
+      }
+    })
+
+    // D 텔레포트: 게이트 통과 → exitT로 (같은 체크포인트 구간 내 전제)
+    this.teleports.forEach((tp, i) => {
+      const key = `${actorKey}:tp${i}`
+      if ((this.cooldown.get(key) ?? -1) > raceSec) return
+      if (!inSplineRange(tFrac, tp.def.t, tp.def.t + 0.005) || Math.abs(lat) > tr.halfWidth * 0.6) return
+      this.cooldown.set(key, raceSec + 3)
+      const idx = Math.floor(tp.def.exitT * tr.N)
+      const s = tr.sampleAt(idx)
+      kart.pos.set(s.pos.x, 0, s.pos.z)
+      kart.trackIdx = idx
+      kart.heading = Math.atan2(s.tan.x, s.tan.z)
+      kart.velDir = kart.heading
+      hit.teleported = true
+    })
+
+    // F 낙석: 임팩트 순간(0.25초 창) 반경 안이면 스핀
+    this.rockfalls.forEach((rf, i) => {
+      const key = `${actorKey}:rf${i}`
+      if ((this.cooldown.get(key) ?? -1) > raceSec || kart.spinT > 0) return
+      const phase = cyclePhase(raceSec, rf.def.period) * rf.def.period
+      const tToImpact = rf.def.period - phase
+      if (tToImpact > 0.25) return
+      const dx = kart.pos.x - rf.impact.x
+      const dz = kart.pos.z - rf.impact.z
+      if (dx * dx + dz * dz < 1.8 * 1.8 && kart.y < 1.0) {
+        this.cooldown.set(key, raceSec + 2)
+        kart.applySpin()
+        hit.spun = true
+      }
+    })
+
+    return hit
   }
 }
