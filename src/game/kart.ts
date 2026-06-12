@@ -178,9 +178,10 @@ export class Kart {
     const steer = canDrive && !spinning ? input.steer : 0
     const driftBtn = canDrive && !spinning && input.drift
 
-    // surface
+    // surface — 지름길(보조 도로) 위에서는 오프로드가 아니다
     const lat = this.track.lateral(this.pos, this.trackIdx)
-    this.offroad = Math.abs(lat) > this.track.halfWidth + 0.6
+    const onAux = this.track.auxRoadFn?.(this.pos) ?? false
+    this.offroad = !onAux && Math.abs(lat) > this.track.halfWidth + 0.6
 
     const boosting = this.boostT > 0 || this.boosterT > 0
     if (this.boostT > 0) this.boostT -= dt
@@ -280,7 +281,8 @@ export class Kart {
     // vertical: jumps, and falling into pits (cliffs / water)
     this.trackIdx = this.track.nearestIndex(this.pos, this.trackIdx)
     const lat2 = this.track.lateral(this.pos, this.trackIdx)
-    const overPit = this.track.isPit(this.trackIdx, lat2)
+    const onAux2 = this.track.auxRoadFn?.(this.pos) ?? false
+    const overPit = this.track.isPit(this.trackIdx, lat2) && !onAux2
     if (!this.airborne && overPit && this.y <= 0.01) {
       this.airborne = true // drove off an edge — start falling
       this.vy = Math.min(this.vy, 0)
@@ -304,7 +306,7 @@ export class Kart {
     // and open water maps have no wall at all (the sea IS the boundary)
     const wallD = this.track.wallDist
     const openWater = course.open && course.ocean
-    if (Math.abs(lat2) > wallD && !overPit && !openWater) {
+    if (Math.abs(lat2) > wallD && !overPit && !openWater && !onAux2) {
       const s = this.track.sampleAt(this.trackIdx)
       const side = Math.sign(lat2)
       // clamp back inside
@@ -357,7 +359,7 @@ export class Kart {
     // wrong-way detection
     const s = this.track.sampleAt(this.trackIdx)
     const movDot = Math.sin(this.velDir) * s.tan.x + Math.cos(this.velDir) * s.tan.z
-    if (this.speed > 4 && movDot < -0.3) this.wrongWayT += dt
+    if (this.speed > 4 && movDot < -0.3 && !onAux2) this.wrongWayT += dt
     else this.wrongWayT = 0
 
     // progress metric (for rank): completed checkpoints + fraction within sector

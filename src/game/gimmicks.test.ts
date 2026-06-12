@@ -1,6 +1,6 @@
 // src/game/gimmicks.test.ts
 import { describe, it, expect } from 'vitest'
-import { inSplineRange, cyclePhase, spinbarAngle, bridgeY, bridgeSolid, pressY } from './gimmicks'
+import { inSplineRange, cyclePhase, spinbarAngle, bridgeY, bridgeSolid, pressY, nearPolyline } from './gimmicks'
 
 describe('inSplineRange', () => {
   it('plain range', () => {
@@ -61,5 +61,17 @@ describe('press', () => {
     expect(pressY(0.83)).toBeLessThan(3.2)
     expect(pressY(0.9)).toBe(0.5)
     expect(pressY(0.97)).toBeGreaterThan(0.5)
+  })
+})
+
+describe('nearPolyline', () => {
+  const line = [{ x: 0, z: 0 }, { x: 10, z: 0 }, { x: 20, z: 0 }]
+  it('inside radius', () => {
+    expect(nearPolyline(10, 2, line, 3)).toBe(true)
+    expect(nearPolyline(0, 0, line, 3)).toBe(true)
+  })
+  it('outside radius', () => {
+    expect(nearPolyline(10, 5, line, 3)).toBe(false)
+    expect(nearPolyline(50, 0, line, 3)).toBe(false)
   })
 })

@@ -32,6 +32,8 @@ export class Track {
   pitLatShift = 0 // 밀물/썰물: open 맵 익사 경계를 동적으로 이동 (GimmickManager가 설정)
   /** 동적 pit (가라앉은 다리 등) — GimmickManager가 설정. true면 폭 전체가 pit */
   dynamicPitFn: ((idx: number) => boolean) | null = null
+  /** 보조 도로(지름길) 판정 — GimmickManager가 설정. true면 오프로드/벽/역주행 면제 */
+  auxRoadFn: ((pos: THREE.Vector3) => boolean) | null = null
 
   constructor(course: CourseDef) {
     this.course = course
@@ -319,8 +321,25 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
       vertexColors: true,
       side: THREE.DoubleSide,
     })
-    const skipL = (i: number) => track.pitAtIndex(i, 1)
-    const skipR = (i: number) => track.pitAtIndex(i, -1)
+    // 지름길 진입/탈출 지점은 가드레일에 틈을 낸다
+    const scGaps: { i0: number; i1: number; side: 1 | -1 }[] = []
+    for (const g of course.gimmicks ?? []) {
+      if (g.type !== 'shortcut') continue
+      const ends: [number, [number, number]][] = [
+        [g.entryT, g.via[0]],
+        [g.exitT, g.via[g.via.length - 1]],
+      ]
+      for (const [t, [vx, vz]] of ends) {
+        const idx = Math.floor(t * track.N)
+        const s = track.sampleAt(idx)
+        const side = (Math.sign((vx - s.pos.x) * s.nor.x + (vz - s.pos.z) * s.nor.z) || 1) as 1 | -1
+        scGaps.push({ i0: idx - 8, i1: idx + 8, side })
+      }
+    }
+    const scGapAt = (i: number, side: 1 | -1) =>
+      scGaps.some((gp) => gp.side === side && i >= gp.i0 && i <= gp.i1)
+    const skipL = (i: number) => track.pitAtIndex(i, 1) || scGapAt(i, 1)
+    const skipR = (i: number) => track.pitAtIndex(i, -1) || scGapAt(i, -1)
     const railL = new THREE.Mesh(makeWall(track, track.wallDist, 0, 0.95, railColor, skipL), railMat)
     const railR = new THREE.Mesh(makeWall(track, -track.wallDist, 0, 0.95, railColor, skipR), railMat)
     group.add(railL, railR)

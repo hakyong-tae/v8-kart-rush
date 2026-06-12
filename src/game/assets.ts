@@ -82,6 +82,14 @@ export const SCENERY_MODELS: Record<string, string[]> = {
     'factory/factory-a', 'factory/factory-b', 'factory/oil-barrels', 'factory/smokestacks',
     'factory/scaffolding',
   ],
+  jungle: [
+    'jungle/temple-mayan-a', 'jungle/temple-mayan-b', 'jungle/temple-entrance',
+    'jungle/temple-ruined', 'jungle/statue',
+    'nature/tree_default', 'nature/tree_detailed', 'nature/tree_oak', 'nature/tree_fat',
+    'nature/plant_bushLarge', 'nature/plant_bushDetailed', 'nature/flower_redA',
+    'nature/grass_large', 'nature/rock_largeA',
+    'pirate/palm-detailed-bend', 'pirate/palm-detailed-straight',
+  ],
 }
 
 export class Assets {
@@ -793,6 +801,83 @@ export function buildDecorations(track: Track, assets: Assets): THREE.Group {
       scatter(['factory/oil-barrels'], [1.6, 2.6], 14, wall + 2, wall + 16)
       scatter(['factory/forklift'], [3.2, 4], 5, wall + 3, wall + 18)
       scatter(['factory/scaffolding'], [5, 8], 6, wall + 4, wall + 20)
+      break
+    }
+    case 'jungle': {
+      // 지름길 회랑 폴리라인 — 랜드마크/수목이 길을 가리지 않게 (먼저 정의)
+      const scLines: { x: number; z: number }[] = []
+      for (const g of track.course.gimmicks ?? []) {
+        if (g.type !== 'shortcut') continue
+        const pts = [
+          track.worldAt(g.entryT, 0),
+          ...g.via.map(([vx, vz]) => new THREE.Vector3(vx, 0, vz)),
+          track.worldAt(g.exitT, 0),
+        ]
+        for (let i = 0; i < pts.length - 1; i++) {
+          for (let f = 0; f <= 1; f += 0.12) {
+            scLines.push({
+              x: pts[i].x + (pts[i + 1].x - pts[i].x) * f,
+              z: pts[i].z + (pts[i + 1].z - pts[i].z) * f,
+            })
+          }
+        }
+      }
+      const nearShortcut = (p: THREE.Vector3, r = 9) =>
+        scLines.some((q) => (p.x - q.x) ** 2 + (p.z - q.z) ** 2 < r * r)
+      // 사원 랜드마크 — 지름길 반대편 바깥쪽에
+      const temples: [string, number, number, number][] = [
+        // [model, size, t위치, lat배수]
+        ['jungle/temple-mayan-a', 36, 0.72, -1], // 지그재그 바깥 대형 피라미드
+        ['jungle/temple-mayan-b', 16, 0.6, -1],
+        ['jungle/temple-ruined', 18, 0.33, 1],
+        ['jungle/temple-entrance', 14, 0.9, -1],
+      ]
+      for (const [name, size, tPos, sideMul] of temples) {
+        const idx = Math.floor(tPos * N)
+        const s = track.sampleAt(idx)
+        const lat = sideMul * (wall + 10 + size * 0.5 + rand() * 6)
+        const p = new THREE.Vector3(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
+        if (Math.abs(track.lateral(p, track.nearestIndex(p))) < hw + 6 + size * 0.4) continue
+        if (nearShortcut(p, 8 + size * 0.45)) continue
+        const t = assets.spawn(name, size)
+        if (!t) continue
+        t.position.set(p.x, 0, p.z)
+        t.rotation.y = Math.atan2(-s.nor.x * sideMul, -s.nor.z * sideMul)
+        group.add(t)
+      }
+      // 길가 석상 (사원 입구 분위기)
+      for (let k = 0; k < 6; k++) {
+        const idx = Math.floor(((k + 0.3) / 6) * N)
+        const side = k % 2 === 0 ? 1 : -1
+        const st = assets.spawn('jungle/statue', 2.6)
+        if (!st) continue
+        const s = track.sampleAt(idx)
+        const lat = side * (wall + 1.6)
+        st.position.set(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
+        st.rotation.y = Math.atan2(-s.nor.x * side, -s.nor.z * side)
+        group.add(st)
+      }
+      // 빽빽한 정글 수목 — 메인도로와 지름길 양쪽을 피해 배치
+      const treeNames = ['nature/tree_default', 'nature/tree_detailed', 'nature/tree_oak', 'nature/tree_fat',
+        'pirate/palm-detailed-bend', 'pirate/palm-detailed-straight']
+      for (let k = 0; k < Math.round(80 * preset().decorScale); k++) {
+        const idx = Math.floor(rand() * N)
+        const side = rand() < 0.5 ? 1 : -1
+        const lat = side * (wall + 6 + rand() * 50)
+        const s = track.sampleAt(idx)
+        const p = new THREE.Vector3(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
+        if (Math.abs(track.lateral(p, track.nearestIndex(p))) < hw + 4) continue
+        if (nearShortcut(p)) continue
+        const obj = assets.spawn(treeNames[Math.floor(rand() * treeNames.length)], 6 + rand() * 4)
+        if (!obj) continue
+        obj.position.set(p.x, 0, p.z)
+        obj.rotation.y = rand() * Math.PI * 2
+        group.add(obj)
+      }
+      scatter(['nature/plant_bushLarge', 'nature/plant_bushDetailed'], [1.6, 2.8], 30, wall + 2, wall + 12)
+      scatter(['nature/flower_redA'], [0.9, 1.3], 22, wall + 1.5, wall + 9)
+      scatter(['nature/grass_large'], [0.8, 1.3], 30, wall + 1.5, wall + 10)
+      scatter(['nature/rock_largeA'], [2.5, 4.5], 8, wall + 3, wall + 14)
       break
     }
     default:

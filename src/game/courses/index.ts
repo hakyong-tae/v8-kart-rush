@@ -7,8 +7,9 @@ import { beach } from './beach'
 import { neon } from './neon'
 import { volcano } from './volcano'
 import { factory } from './factory'
+import { jungle } from './jungle'
 
-export const COURSES: CourseDef[] = [sunny, canyon, ice, beach, neon, volcano, factory]
+export const COURSES: CourseDef[] = [sunny, canyon, ice, beach, neon, volcano, factory, jungle]
 
 export function getCourse(id: string): CourseDef {
   const c = COURSES.find((c) => c.id === id)

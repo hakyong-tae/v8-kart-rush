@@ -35,6 +35,8 @@ export const canyon: CourseDef = {
   gimmicks: [
     { type: 'rockfall', t: 0.18, lane: -0.3, period: 5, warnSec: 1 },
     { type: 'rockfall', t: 0.62, lane: 0.4, period: 6.5, warnSec: 1 },
+    // 남서 딥을 가로지르는 좁은 협곡길 (절약 43 — 길지만 좁다)
+    { type: 'shortcut', entryT: 0.53, exitT: 0.714, via: [[-95, -102]], width: 5 },
   ],
   decorSeed: 23,
   theme: {

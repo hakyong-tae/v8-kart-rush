@@ -32,6 +32,8 @@ export const ice: CourseDef = {
     { type: 'bumper', t: 0.32, lane: -0.45 },
     { type: 'bumper', t: 0.345, lane: 0.4 },
     { type: 'bumper', t: 0.37, lane: 0 },
+    // 북쪽 위글 바깥 빙판 우회로 (절약 21)
+    { type: 'shortcut', entryT: 0.347, exitT: 0.569, via: [[30, 150], [-25, 162]], width: 5.5 },
   ],
   decorSeed: 31,
   theme: {

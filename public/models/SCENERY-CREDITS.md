@@ -22,3 +22,10 @@ CC0 models need no attribution but are listed for completeness. CC-BY models req
 - Oil Barrels (oil-barrels.glb) — Robert Schlyter, CC-BY 3.0, https://poly.pizza/m/cSXe7zbSSAL
 - Smokestacks (smokestacks.glb) — Jarlan Perez, CC-BY 3.0, https://poly.pizza/m/8U1WTzxTmfA
 - Scaffolding (scaffolding.glb) — lakescorp, CC0 1.0, https://poly.pizza/m/AYQd5RQ8w4
+
+## jungle/
+- Mayan Temple A (temple-mayan-a.glb) — Steve Atkins, CC-BY 3.0, https://poly.pizza/m/cf3QwX0JqGN
+- Mayan Temple B (temple-mayan-b.glb) — Vivien Lightfoot, CC-BY 3.0, https://poly.pizza/m/2L1BNfBSXrP
+- Temple Entrance (temple-entrance.glb) — Steingrímur Jónsson, CC-BY 3.0, https://poly.pizza/m/ajef1XE6Dwm
+- Temple of Prophecy: Ruined (temple-ruined.glb) — Duncan Anderson, CC-BY 3.0, https://poly.pizza/m/7LV6QMkGBNo
+- Statue (statue.glb) — Zsky, CC-BY 3.0, https://poly.pizza/m/JXmywADgSk

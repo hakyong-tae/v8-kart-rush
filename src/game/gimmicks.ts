@@ -20,6 +20,7 @@ export type GimmickDef =
   | { type: 'geyser'; t: number; lane: number; period: number; warnSec: number } // 간헐천 — 분출 타면 점프
   | { type: 'hammer'; t: number; lane: number; period: number; variant?: 'hammer' | 'log' } // 진자 해머/통나무
   | { type: 'press'; t: number; lane: number; period: number } // 프레스
+  | { type: 'shortcut'; entryT: number; exitT: number; via: [number, number][]; width: number } // 샛길 (via: 월드 경유점)
 
 /** 스플라인 t(0..1) 범위 판정 — 랩 경계(1→0) 래핑 지원 */
 export function inSplineRange(tFrac: number, t0: number, t1: number): boolean {
@@ -51,6 +52,21 @@ export function bridgeSolid(phase: number, duty: number): boolean {
   return bridgeY(phase, duty) > -1.2
 }
 
+/** 점이 폴리라인 샘플들로부터 r 이내인가 (지름길 판정) */
+export function nearPolyline(
+  px: number, pz: number,
+  samples: { x: number; z: number }[],
+  r: number,
+): boolean {
+  const r2 = r * r
+  for (const p of samples) {
+    const dx = px - p.x
+    const dz = pz - p.z
+    if (dx * dx + dz * dz < r2) return true
+  }
+  return false
+}
+
 /** 프레스 플레이트 높이: 대부분 3.2(위), phase 0.8~0.86 급강하 → 0.5, 0.94부터 복귀 */
 export function pressY(phase: number): number {
   if (phase < 0.8) return 3.2
@@ -72,6 +88,7 @@ interface SinkroadRT { def: Extract<GimmickDef, { type: 'sinkroad' }>; mesh: THR
 interface GeyserRT { def: Extract<GimmickDef, { type: 'geyser' }>; column: THREE.Mesh; bubble: THREE.Mesh; center: THREE.Vector3 }
 interface HammerRT { def: Extract<GimmickDef, { type: 'hammer' }>; pivot: THREE.Group; center: THREE.Vector3; tanAxis: THREE.Vector3; norDir: THREE.Vector3 }
 interface PressRT { def: Extract<GimmickDef, { type: 'press' }>; plate: THREE.Mesh; center: THREE.Vector3 }
+interface ShortcutRT { def: Extract<GimmickDef, { type: 'shortcut' }>; samples: THREE.Vector3[] }
 
 export interface GimmickHit {
   spun: boolean // 스핀 당함 (회전바/낙석/해머/프레스)
@@ -99,6 +116,7 @@ export class GimmickManager {
   private geysers: GeyserRT[] = []
   private hammers: HammerRT[] = []
   private presses: PressRT[] = []
+  private shortcuts: ShortcutRT[] = []
   private cooldown = new Map<string, number>() // `${actor}:${i}` → raceSec until
   private raceSecNow = 0 // track.dynamicPitFn이 읽는 현재 시각 (매 프레임 갱신)
 
@@ -331,6 +349,60 @@ export class GimmickManager {
           this.presses.push({ def, plate, center })
           break
         }
+        case 'shortcut': {
+          // 진입/탈출은 도로 가장자리에서 시작해 via 경유점을 지나는 흙길
+          const sideOf = (vx: number, vz: number, s: ReturnType<Track['sampleAt']>) =>
+            Math.sign((vx - s.pos.x) * s.nor.x + (vz - s.pos.z) * s.nor.z) || 1
+          const e = track.sampleAt(Math.floor(def.entryT * track.N))
+          const x = track.sampleAt(Math.floor(def.exitT * track.N))
+          const eSide = sideOf(def.via[0][0], def.via[0][1], e)
+          const xSide = sideOf(def.via[def.via.length - 1][0], def.via[def.via.length - 1][1], x)
+          const pts = [
+            new THREE.Vector3(e.pos.x + e.nor.x * eSide * hw * 0.5, 0, e.pos.z + e.nor.z * eSide * hw * 0.5),
+            ...def.via.map(([vx, vz]) => new THREE.Vector3(vx, 0, vz)),
+            new THREE.Vector3(x.pos.x + x.nor.x * xSide * hw * 0.5, 0, x.pos.z + x.nor.z * xSide * hw * 0.5),
+          ]
+          const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.5)
+          const M = 160
+          const samples: THREE.Vector3[] = []
+          for (let k = 0; k <= M; k++) samples.push(curve.getPointAt(k / M))
+          // 흙길 strip 메시
+          const positions: number[] = []
+          const indices: number[] = []
+          const w = def.width / 2
+          for (let k = 0; k <= M; k++) {
+            const tan = curve.getTangentAt(k / M)
+            const nx = tan.z, nz = -tan.x // 좌측 법선
+            const p = samples[k]
+            positions.push(p.x - nx * w, 0.025, p.z - nz * w)
+            positions.push(p.x + nx * w, 0.025, p.z + nz * w)
+            if (k < M) {
+              const a = k * 2
+              indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3)
+            }
+          }
+          const geo = new THREE.BufferGeometry()
+          geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+          geo.setIndex(indices)
+          geo.computeVertexNormals()
+          this.group.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0x8a7050 })))
+          // 입구 화살표 마커 (노란 콘 2개)
+          for (const [tt, sgn] of [[def.entryT, eSide], [def.exitT, xSide]] as const) {
+            const s2 = track.sampleAt(Math.floor(tt * track.N))
+            const cone = new THREE.Mesh(
+              new THREE.ConeGeometry(0.5, 1.4, 6),
+              new THREE.MeshBasicMaterial({ color: 0xffd23e }),
+            )
+            cone.position.set(
+              s2.pos.x + s2.nor.x * sgn * (hw + 1.6), 1.6,
+              s2.pos.z + s2.nor.z * sgn * (hw + 1.6),
+            )
+            cone.rotation.z = Math.PI // 아래를 가리키는 화살표
+            this.group.add(cone)
+          }
+          this.shortcuts.push({ def, samples })
+          break
+        }
         case 'rockfall': {
           const impact = this.track.worldAt(def.t, def.lane * hw)
           const rock = new THREE.Mesh(
@@ -351,6 +423,14 @@ export class GimmickManager {
         }
       }
     })
+
+    // 지름길 = 보조 도로 (kart.step에서 오프로드/벽/역주행 면제)
+    if (this.shortcuts.length) {
+      track.auxRoadFn = (pos) =>
+        this.shortcuts.some((sc) =>
+          nearPolyline(pos.x, pos.z, sc.samples, sc.def.width / 2 + 0.9),
+        )
+    }
 
     // 가라앉은 다리 = 동적 pit (kart.step의 isPit → 기존 낙하/구조대 흐름 재사용)
     if (this.sinkroads.length) {
