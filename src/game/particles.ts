@@ -27,8 +27,6 @@ interface Particle {
   gravity: number
 }
 
-const MAX_PARTICLES = Math.round(160 * preset().particleScale)
-
 export class Particles {
   private textures = new Map<TexName, THREE.Texture>()
   private pool: Particle[] = []
@@ -47,7 +45,7 @@ export class Particles {
   private obtain(tex: TexName, additive: boolean): Particle | null {
     let p = this.pool.pop()
     if (!p) {
-      if (this.active.length >= MAX_PARTICLES) return null
+      if (this.active.length >= Math.round(160 * preset().particleScale)) return null
       const mat = new THREE.SpriteMaterial({
         transparent: true,
         depthWrite: false,

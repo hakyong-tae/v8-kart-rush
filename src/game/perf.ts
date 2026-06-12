@@ -24,10 +24,13 @@ function detect(): Quality {
   return 'high'
 }
 
-let quality: Quality =
-  (typeof localStorage !== 'undefined' &&
-    (localStorage.getItem('v8kart_quality') as Quality | null)) ||
-  detect()
+function loadStored(): Quality | null {
+  if (typeof localStorage === 'undefined') return null
+  const stored = localStorage.getItem('v8kart_quality')
+  return stored && stored in PRESETS ? (stored as Quality) : null
+}
+
+let quality: Quality = loadStored() ?? detect()
 
 export function getQuality(): Quality {
   return quality
