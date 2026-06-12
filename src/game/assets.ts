@@ -72,6 +72,16 @@ export const SCENERY_MODELS: Record<string, string[]> = {
     'city/building-i', 'city/building-k', 'city/building-n',
     'city/building-skyscraper-a', 'city/building-skyscraper-c', 'city/building-skyscraper-e',
   ],
+  // poly.pizza CC0/CC-BY — 크레딧: public/models/SCENERY-CREDITS.md
+  volcano: [
+    'volcano/volcano-a', 'volcano/volcano-b', 'volcano/tree-lava-a', 'volcano/tree-lava-b',
+    'volcano/rock-forms-a', 'volcano/rock-forms-b', 'volcano/dead-trees', 'volcano/smoke',
+  ],
+  factory: [
+    'factory/container', 'factory/crane-a', 'factory/crane-b', 'factory/forklift',
+    'factory/factory-a', 'factory/factory-b', 'factory/oil-barrels', 'factory/smokestacks',
+    'factory/scaffolding',
+  ],
 }
 
 export class Assets {
@@ -683,39 +693,34 @@ export function buildDecorations(track: Track, assets: Assets): THREE.Group {
       break
     }
     case 'volcano': {
-      // 원거리 화산 콘 (꼭대기 글로우) — 트랙을 빙 둘러 배치
-      const rockMat = new THREE.MeshLambertMaterial({ color: 0x3a2c28 })
-      const glowMat = new THREE.MeshBasicMaterial({ color: 0xff7a3a })
-      for (let k = 0; k < 6; k++) {
-        const idx = Math.floor((k / 6) * N + rand() * 60)
+      // 원거리 대형 화산 (poly.pizza) + 분화구 연기
+      for (let k = 0; k < 4; k++) {
+        const idx = Math.floor((k / 4) * N + rand() * 80)
         const side = k % 2 === 0 ? 1 : -1
         const s = track.sampleAt(idx)
-        const lat = side * (wall + 45 + rand() * 30)
+        const lat = side * (wall + 55 + rand() * 35)
         const p = new THREE.Vector3(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
-        if (Math.abs(track.lateral(p, track.nearestIndex(p))) < hw + 20) continue
-        const h = 20 + rand() * 14
-        const cone = new THREE.Mesh(new THREE.ConeGeometry(h * 0.62, h, 7), rockMat)
-        cone.position.set(p.x, h / 2, p.z)
-        cone.rotation.y = rand() * Math.PI
-        const glow = new THREE.Mesh(new THREE.SphereGeometry(h * 0.1, 6, 5), glowMat)
-        glow.position.set(p.x, h + h * 0.02, p.z)
-        group.add(cone, glow)
+        if (Math.abs(track.lateral(p, track.nearestIndex(p))) < hw + 24) continue
+        const big = k % 2 === 0
+        const h = big ? 46 + rand() * 18 : 26 + rand() * 10
+        const v = assets.spawn(big ? 'volcano/volcano-a' : 'volcano/volcano-b', h)
+        if (!v) continue
+        v.position.set(p.x, 0, p.z)
+        v.rotation.y = rand() * Math.PI * 2
+        group.add(v)
+        const smoke = assets.spawn('volcano/smoke', h * 0.55)
+        if (smoke) {
+          smoke.position.set(p.x, h * 0.78, p.z)
+          smoke.rotation.y = rand() * Math.PI * 2
+          group.add(smoke)
+        }
       }
-      // 검은 현무암 바위
-      for (let k = 0; k < Math.round(26 * preset().decorScale); k++) {
-        const idx = Math.floor(rand() * N)
-        const side = rand() < 0.5 ? 1 : -1
-        const lat = side * (wall + 3 + rand() * 28)
-        const s = track.sampleAt(idx)
-        const p = new THREE.Vector3(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
-        if (Math.abs(track.lateral(p, track.nearestIndex(p))) < hw + 3.5) continue
-        const r = 0.9 + rand() * 2.2
-        const rock = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 0), rockMat)
-        rock.position.set(p.x, r * 0.55, p.z)
-        rock.rotation.set(rand() * Math.PI, rand() * Math.PI, 0)
-        group.add(rock)
-      }
-      // 용암 글로우 웅덩이
+      // 중거리 암석 지형 + 트랙변 용암 나무/고사목
+      scatter(['volcano/rock-forms-a', 'volcano/rock-forms-b'], [6, 14], 18, wall + 6, wall + 40)
+      scatter(['volcano/tree-lava-a', 'volcano/tree-lava-b'], [4.5, 7], 26, wall + 2, wall + 26)
+      scatter(['volcano/dead-trees'], [5, 8], 8, wall + 8, wall + 34)
+      scatter(['nature/rock_largeA', 'nature/rock_largeD'], [3, 6], 12, wall + 3, wall + 24)
+      // 용암 글로우 웅덩이 (절차 생성 유지 — 발광 액센트)
       const lavaMat = new THREE.MeshBasicMaterial({ color: 0xff5a26, transparent: true, opacity: 0.55 })
       for (let k = 0; k < Math.round(10 * preset().decorScale); k++) {
         const idx = Math.floor(rand() * N)
@@ -732,53 +737,62 @@ export function buildDecorations(track: Track, assets: Assets): THREE.Group {
       break
     }
     case 'factory': {
-      // 컨테이너 스택
-      const palette = [0x4a6da0, 0xb0563a, 0x6a7a4a, 0x6e7480]
-      for (let k = 0; k < Math.round(12 * preset().decorScale); k++) {
+      // 원거리 공장 건물 + 굴뚝 (poly.pizza)
+      const landmarks: [string, number, number][] = [
+        ['factory/factory-a', 34, 0.12],
+        ['factory/smokestacks', 30, 0.38],
+        ['factory/factory-b', 26, 0.62],
+        ['factory/factory-a', 30, 0.88],
+      ]
+      for (const [name, size, tPos] of landmarks) {
+        const idx = Math.floor(tPos * N + rand() * 40)
+        const side = rand() < 0.5 ? 1 : -1
+        const s = track.sampleAt(idx)
+        const lat = side * (wall + 30 + rand() * 18)
+        const p = new THREE.Vector3(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
+        if (Math.abs(track.lateral(p, track.nearestIndex(p))) < hw + 16) continue
+        const b = assets.spawn(name, size)
+        if (!b) continue
+        b.position.set(p.x, 0, p.z)
+        b.rotation.y = Math.atan2(-s.nor.x * side, -s.nor.z * side)
+        group.add(b)
+      }
+      // 크레인 — 야드 위에 우뚝
+      for (let k = 0; k < 3; k++) {
+        const idx = Math.floor(((k + 0.5) / 3) * N)
+        const side = k % 2 === 0 ? 1 : -1
+        const s = track.sampleAt(idx)
+        const lat = side * (wall + 16 + rand() * 12)
+        const p = new THREE.Vector3(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
+        if (Math.abs(track.lateral(p, track.nearestIndex(p))) < hw + 10) continue
+        const c = assets.spawn(k % 2 === 0 ? 'factory/crane-a' : 'factory/crane-b', 18 + rand() * 6)
+        if (!c) continue
+        c.position.set(p.x, 0, p.z)
+        c.rotation.y = rand() * Math.PI * 2
+        group.add(c)
+      }
+      // 컨테이너 야적 (실모델, 1~2단 적층)
+      for (let k = 0; k < Math.round(10 * preset().decorScale); k++) {
         const idx = Math.floor(rand() * N)
         const side = rand() < 0.5 ? 1 : -1
-        const lat = side * (wall + 4 + rand() * 26)
+        const lat = side * (wall + 4 + rand() * 22)
         const s = track.sampleAt(idx)
         const p = new THREE.Vector3(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
         if (Math.abs(track.lateral(p, track.nearestIndex(p))) < hw + 5) continue
-        const layers = 1 + Math.floor(rand() * 3)
+        const layers = 1 + Math.floor(rand() * 2)
         for (let l = 0; l < layers; l++) {
-          const box = new THREE.Mesh(
-            new THREE.BoxGeometry(6, 3, 3),
-            new THREE.MeshLambertMaterial({ color: palette[Math.floor(rand() * palette.length)] }),
-          )
-          box.position.set(p.x + (rand() - 0.5) * 1.2, 1.5 + l * 3, p.z + (rand() - 0.5) * 1.2)
+          const box = assets.spawn('factory/container', 7)
+          if (!box) continue
+          // spawn()은 바닥 기준 정렬이 아닐 수 있어 박스 높이만큼 띄움
+          box.position.set(p.x + (rand() - 0.5) * 1.2, l * 3.1, p.z + (rand() - 0.5) * 1.2)
           box.rotation.y = rand() * 0.4 - 0.2
           group.add(box)
         }
       }
-      // 원통 탱크 + 원거리 굴뚝
-      const tankMat = new THREE.MeshLambertMaterial({ color: 0x8a8f9a })
-      const stackMat = new THREE.MeshLambertMaterial({ color: 0x4a4f5a })
-      for (let k = 0; k < 5; k++) {
-        const idx = Math.floor(rand() * N)
-        const side = rand() < 0.5 ? 1 : -1
-        const s = track.sampleAt(idx)
-        const lat = side * (wall + 8 + rand() * 18)
-        const p = new THREE.Vector3(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
-        if (Math.abs(track.lateral(p, track.nearestIndex(p))) < hw + 6) continue
-        const tank = new THREE.Mesh(new THREE.CylinderGeometry(2, 2, 6, 12), tankMat)
-        tank.position.set(p.x, 3, p.z)
-        group.add(tank)
-      }
-      for (let k = 0; k < 4; k++) {
-        const idx = Math.floor(((k + 0.4) / 4) * N)
-        const side = k % 2 === 0 ? 1 : -1
-        const s = track.sampleAt(idx)
-        const lat = side * (wall + 34 + rand() * 14)
-        const p = new THREE.Vector3(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
-        if (Math.abs(track.lateral(p, track.nearestIndex(p))) < hw + 16) continue
-        const stack = new THREE.Mesh(new THREE.CylinderGeometry(1.2, 1.6, 18, 10), stackMat)
-        stack.position.set(p.x, 9, p.z)
-        const rim = new THREE.Mesh(new THREE.CylinderGeometry(1.35, 1.35, 1.2, 10), tankMat)
-        rim.position.set(p.x, 17.6, p.z)
-        group.add(stack, rim)
-      }
+      // 트랙변 소품: 기름통·지게차·비계
+      scatter(['factory/oil-barrels'], [1.6, 2.6], 14, wall + 2, wall + 16)
+      scatter(['factory/forklift'], [3.2, 4], 5, wall + 3, wall + 18)
+      scatter(['factory/scaffolding'], [5, 8], 6, wall + 4, wall + 20)
       break
     }
     default:
