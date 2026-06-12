@@ -2,7 +2,7 @@
 // All moving parts are PURE FUNCTIONS of race time → every client / ghost / AI
 // sees the same state with zero network sync.
 import * as THREE from 'three'
-import type { Track } from './track'
+import { NUM_CHECKPOINTS, type Track } from './track'
 import type { Kart } from './kart'
 import { preset } from './perf'
 
@@ -166,6 +166,11 @@ export class GimmickManager {
           break
         }
         case 'teleport': {
+          // 게이트는 같은 체크포인트 구간 안에서만 이동해야 랩/역주행 로직이 안전하다
+          const cpIn = Math.floor(def.t * NUM_CHECKPOINTS) % NUM_CHECKPOINTS
+          const cpOut = Math.floor(def.exitT * NUM_CHECKPOINTS) % NUM_CHECKPOINTS
+          if (cpIn !== cpOut)
+            throw new Error(`teleport gimmick crosses checkpoint sectors (${cpIn}→${cpOut})`)
           const mkGate = (t: number, color: number) => {
             const p = this.track.worldAt(t, 0)
             const g = new THREE.Mesh(
@@ -292,6 +297,7 @@ export class GimmickManager {
       const d2 = dx * dx + dz * dz
       if (d2 > 2.3 * 2.3 || d2 < 1e-6 || kart.y > 0.8) continue
       const d = Math.sqrt(d2)
+      // pos를 직접 밀어내도 다음 물리 스텝의 가드레일 클램프가 잡아준다 (호출 순서 의존)
       kart.pos.x += (dx / d) * (2.3 - d)
       kart.pos.z += (dz / d) * (2.3 - d)
       kart.velDir = Math.atan2(dx, dz)
@@ -356,6 +362,9 @@ export class GimmickManager {
       kart.trackIdx = idx
       kart.heading = Math.atan2(s.tan.x, s.tan.z)
       kart.velDir = kart.heading
+      kart.y = 0
+      kart.vy = 0
+      kart.airborne = false
       hit.teleported = true
     })
 
