@@ -717,16 +717,8 @@ export class GimmickManager {
       const dz0 = kart.pos.z - cn.pad.z
       if (dx0 * dx0 + dz0 * dz0 > 2.6 * 2.6 || kart.y > 0.5) return
       this.cooldown.set(key, raceSec + 4)
-      const dx = cn.land.x - kart.pos.x
-      const dz = cn.land.z - kart.pos.z
-      const dist = Math.hypot(dx, dz)
-      kart.heading = Math.atan2(dx, dz)
-      kart.velDir = kart.heading
-      kart.driftDir = 0
-      kart.driftCharge = 0
-      kart.speed = dist / cn.def.flightSec + 4 // 공중 감속 보정 여유
-      kart.boosterT = cn.def.flightSec // 부스터 유지로 속도 보존
-      kart.applyJump(13 * cn.def.flightSec) // 체공시간 ≈ flightSec (g=26)
+      // 착지 링으로 정확히 떨어지는 탄도 발사 (부스터 속도캡 무시)
+      kart.launch(cn.land.x, cn.land.z, cn.def.flightSec)
       hit.launched = true
     })
 

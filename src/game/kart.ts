@@ -125,6 +125,31 @@ export class Kart {
     this.driftCharge = 0
   }
 
+  // ballistic cannon launch — flies a fixed horizontal velocity (ignores the
+  // throttle / booster speed cap) and lands at the target after flightSec.
+  launched = false
+  private launchVX = 0
+  private launchVZ = 0
+
+  /** 대포 발사: tx,tz로 flightSec 만에 정확히 착지하는 탄도 비행 */
+  launch(tx: number, tz: number, flightSec: number) {
+    const dx = tx - this.pos.x
+    const dz = tz - this.pos.z
+    this.launchVX = dx / flightSec
+    this.launchVZ = dz / flightSec
+    this.heading = Math.atan2(dx, dz)
+    this.velDir = this.heading
+    this.speed = Math.hypot(dx, dz) / flightSec
+    this.vy = 0.5 * 26 * flightSec // g=26 → y가 정확히 flightSec 후 0으로 복귀
+    this.y = Math.max(this.y, 0.01)
+    this.airborne = true
+    this.launched = true
+    this.driftDir = 0
+    this.driftCharge = 0
+    this.boostT = 0
+    this.boosterT = 0
+  }
+
   /** KartRider manual booster: consumes a full gauge. Returns true if fired. */
   fireBooster(): boolean {
     if (this.boostGauge < 1 || this.spinT > 0) return false
@@ -209,8 +234,10 @@ export class Kart {
     }
     if (this.offroad && !boosting && this.y < 0.2) this.speed *= Math.exp(-course.offroadDrag * dt)
 
-    // drift state machine (no drifting mid-air)
-    if (this.driftDir === 0) {
+    // drift state machine (no drifting mid-air, none while cannon-launched)
+    if (this.launched) {
+      // ballistic flight: ignore steering/drift, move by fixed launch velocity
+    } else if (this.driftDir === 0) {
       if (!this.airborne && driftBtn && Math.abs(steer) > 0.3 && this.speed > DRIFT_MIN_SPEED) {
         this.driftDir = steer > 0 ? 1 : -1
         this.driftCharge = 0
@@ -274,9 +301,14 @@ export class Kart {
     const maxChase = grip * dt
     this.velDir += THREE.MathUtils.clamp(dAng, -maxChase, maxChase)
 
-    // integrate
-    this.pos.x += Math.sin(this.velDir) * this.speed * dt
-    this.pos.z += Math.cos(this.velDir) * this.speed * dt
+    // integrate — cannon flight uses its fixed launch velocity
+    if (this.launched) {
+      this.pos.x += this.launchVX * dt
+      this.pos.z += this.launchVZ * dt
+    } else {
+      this.pos.x += Math.sin(this.velDir) * this.speed * dt
+      this.pos.z += Math.cos(this.velDir) * this.speed * dt
+    }
 
     // vertical: jumps, and falling into pits (cliffs / water)
     this.trackIdx = this.track.nearestIndex(this.pos, this.trackIdx)
@@ -293,7 +325,16 @@ export class Kart {
       this.vy -= 26 * dt
       this.y += this.vy * dt
       if (this.y <= 0) {
-        if (!overPit) {
+        if (this.launched) {
+          // cannon touchdown — land on the road, keep a punchy exit speed
+          this.y = 0
+          this.vy = 0
+          this.airborne = false
+          this.launched = false
+          this.speed = Math.min(this.speed, BOOST_SPEED)
+          this.applyBoost(0.4)
+          ev.landed = true
+        } else if (!overPit) {
           this.y = 0
           this.vy = 0
           this.airborne = false
