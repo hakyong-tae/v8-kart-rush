@@ -359,6 +359,22 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
   )
   group.add(curbL, curbR)
 
+  // Shoulder skirt: the drivable off-road strip between curb and guardrail has
+  // no floor of its own — on flat maps the ground plane covers it, but on
+  // elevated / sky maps that ground is far below, leaving a see-through gap
+  // you can still drive over. Lay a surface from the curb out past the wall.
+  if (!course.open) {
+    const shoulderCol = new THREE.Color(theme.ground).lerp(new THREE.Color(theme.road), 0.4)
+    const skirtMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })
+    const skirtOuter = track.wallDist + 3
+    const skL = (i: number) => track.pitAtIndex(i, 1)
+    const skR = (i: number) => track.pitAtIndex(i, -1)
+    group.add(
+      new THREE.Mesh(makeStrip(track, () => hw + 1.1, () => skirtOuter, 0.005, () => shoulderCol, skL), skirtMat),
+      new THREE.Mesh(makeStrip(track, () => -skirtOuter, () => -hw - 1.1, 0.005, () => shoulderCol, skR), skirtMat),
+    )
+  }
+
   // Guardrails (KartRider-style walls) on both sides — open maps have none,
   // and rails are skipped along pit (cliff) sections so you can fall off.
   if (!course.open) {
