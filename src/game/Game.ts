@@ -388,6 +388,8 @@ export class Game {
 
     this.input.attach()
     audio.resume()
+    // 첫 사용 시 셰이더 컴파일 히치 방지 — 카운트다운 동안 미리 컴파일
+    this.renderer.compile(this.scene, this.camera)
     this.last = nowPerf
     this.raf = requestAnimationFrame(this.loop)
     ;(window as any).__game = this

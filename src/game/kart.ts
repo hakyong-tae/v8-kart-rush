@@ -32,6 +32,17 @@ const BOOSTER_TIME = 2.3
 
 export type DriftTier = 0 | 1 | 2
 
+// step()이 반환하는 이벤트 — 매 스텝 재사용 (반환 직후 읽고 버릴 것)
+const STEP_EV = {
+  lapCrossed: false,
+  driftReleased: 0 as DriftTier,
+  driftStarted: false,
+  gaugeFilled: false,
+  wallBumped: false,
+  fell: false,
+  landed: false,
+}
+
 export class Kart {
   pos = new THREE.Vector3()
   heading = 0 // facing angle (rad), atan2(x, z)
@@ -186,15 +197,15 @@ export class Kart {
     fell: boolean
     landed: boolean
   } {
-    const ev = {
-      lapCrossed: false,
-      driftReleased: 0 as DriftTier,
-      driftStarted: false,
-      gaugeFilled: false,
-      wallBumped: false,
-      fell: false,
-      landed: false,
-    }
+    // 재사용 이벤트 객체 (호출 직후 소비됨 — GC 압력 감소)
+    const ev = STEP_EV
+    ev.lapCrossed = false
+    ev.driftReleased = 0
+    ev.driftStarted = false
+    ev.gaugeFilled = false
+    ev.wallBumped = false
+    ev.fell = false
+    ev.landed = false
 
     if (this.wallHit > 0) this.wallHit -= dt
     if (this.hitGraceT > 0) this.hitGraceT -= dt

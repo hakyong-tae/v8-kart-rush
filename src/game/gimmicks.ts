@@ -562,9 +562,17 @@ export class GimmickManager {
    * 물리 스텝마다 호출 — kart를 변형하고 발생 이벤트를 돌려준다.
    * actorKey는 쿨다운 키 ('me', AI id 등). 원격 카트에는 호출하지 않는다(피해자 권한).
    */
+  private reusedHit: GimmickHit = { spun: false, bounced: false, teleported: false, launched: false, smashedCrate: null }
+
   applyToActor(actorKey: string, kart: Kart, raceSec: number, dt: number): GimmickHit {
     this.raceSecNow = raceSec
-    const hit: GimmickHit = { spun: false, bounced: false, teleported: false, launched: false, smashedCrate: null }
+    // 재사용 객체 — 호출 직후 소비됨
+    const hit = this.reusedHit
+    hit.spun = false
+    hit.bounced = false
+    hit.teleported = false
+    hit.launched = false
+    hit.smashedCrate = null
     const tr = this.track
     const tFrac = kart.trackIdx / tr.N
     const lat = tr.lateral(kart.pos, kart.trackIdx)
