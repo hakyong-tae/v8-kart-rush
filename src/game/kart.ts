@@ -3,7 +3,9 @@ import { Track, NUM_CHECKPOINTS } from './track'
 import type { InputState } from './input'
 import type { KartStats } from './roster'
 
-const DEFAULT_STATS: KartStats = { speed: 1, accel: 1, grip: 1, gauge: 1 }
+const DEFAULT_STATS: KartStats = {
+  speed: 1, accel: 1, handling: 1, drift: 1, gauge: 1, boost: 1, mass: 1, spin: 1, grace: 0.5,
+}
 
 // Arcade kart tuning — KartRider-style: drift charges a booster gauge,
 // full gauge fires a long manual boost.
@@ -158,9 +160,11 @@ export class Kart {
     return true
   }
 
+  hitGraceT = 0 // 피격 후 무적창 (invinc 스탯) — 연속 피격 방지
+
   applySpin() {
-    if (this.spinT > 0) return
-    this.spinT = SPIN_TIME
+    if (this.spinT > 0 || this.hitGraceT > 0) return
+    this.spinT = SPIN_TIME * this.stats.spin
     this.driftDir = 0
     this.driftCharge = 0
     this.boostT = 0
@@ -193,9 +197,11 @@ export class Kart {
     }
 
     if (this.wallHit > 0) this.wallHit -= dt
+    if (this.hitGraceT > 0) this.hitGraceT -= dt
     if (this.spinT > 0) {
       this.spinT -= dt
       this.speed *= Math.exp(-3.2 * dt)
+      if (this.spinT <= 0) this.hitGraceT = this.stats.grace // 회복 직후 잠깐 무적
     }
 
     const spinning = this.spinT > 0
@@ -249,8 +255,8 @@ export class Kart {
       if (!driftBtn || tooSlow) {
         ev.driftReleased = this.driftTier
         // small release kick (순간부스트). The real reward is the gauge.
-        if (this.driftTier === 1) this.applyBoost(0.45)
-        else if (this.driftTier === 2) this.applyBoost(0.85)
+        if (this.driftTier === 1) this.applyBoost(0.45 * this.stats.boost)
+        else if (this.driftTier === 2) this.applyBoost(0.85 * this.stats.boost)
         this.driftDir = 0
         this.driftCharge = 0
       } else {
@@ -287,14 +293,9 @@ export class Kart {
     this.heading += turn * fwd * dt
 
     // velocity direction chases heading (low grip while drifting => slide)
-    const grip =
-      (this.ice
-        ? this.driftDir !== 0
-          ? GRIP_DRIFT_ICE
-          : GRIP_ICE
-        : this.driftDir !== 0
-          ? GRIP_DRIFT
-          : GRIP_NORMAL) * this.stats.grip
+    const grip = this.driftDir !== 0
+      ? (this.ice ? GRIP_DRIFT_ICE : GRIP_DRIFT) * this.stats.drift
+      : (this.ice ? GRIP_ICE : GRIP_NORMAL) * this.stats.handling
     let dAng = this.heading - this.velDir
     while (dAng > Math.PI) dAng -= Math.PI * 2
     while (dAng < -Math.PI) dAng += Math.PI * 2
@@ -413,17 +414,19 @@ export class Kart {
   }
 }
 
-// circle collision between two karts; only `a` (local) is corrected
-export function resolveKartCollision(a: Kart, bPos: THREE.Vector3) {
+// circle collision between two karts; only `a` (local) is corrected.
+// bMass: 상대 질량 (모르면 1). 무거운 카트는 덜 밀리고 덜 감속한다 (weight 스탯).
+export function resolveKartCollision(a: Kart, bPos: THREE.Vector3, bMass = 1) {
   const dx = a.pos.x - bPos.x
   const dz = a.pos.z - bPos.z
   const d2 = dx * dx + dz * dz
   const minD = 2.0
   if (d2 > minD * minD || d2 < 1e-6) return false
   const d = Math.sqrt(d2)
-  const push = (minD - d) * 0.6
+  const share = bMass / (a.stats.mass + bMass) // 상대가 무거울수록 내가 더 밀림
+  const push = (minD - d) * 1.2 * share
   a.pos.x += (dx / d) * push
   a.pos.z += (dz / d) * push
-  a.speed *= 0.92
+  a.speed *= 1 - 0.16 * share * 2
   return true
 }

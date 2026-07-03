@@ -8,13 +8,13 @@ import { useI18n } from '../i18n'
 const STAT_KEYS = [
   { key: 'speed', label: 'statSpeed' },
   { key: 'accel', label: 'statAccel' },
-  { key: 'grip', label: 'statGrip' },
-  { key: 'gauge', label: 'statGauge' },
+  { key: 'handling', label: 'statHandling' },
+  { key: 'drift', label: 'statDrift' },
 ] as const
 
-// additive points land in ~-10..+24 — map onto a readable bar (0pt = center)
+// 1~10 스케일 (6=중립) → 막대 폭
 function barWidth(points: number): string {
-  return `${Math.round(THREE.MathUtils.clamp(((points + 15) / 40) * 100, 8, 100))}%`
+  return `${Math.round(THREE.MathUtils.clamp((points / 10) * 100, 8, 100))}%`
 }
 
 
@@ -108,8 +108,8 @@ export function ComboPreview({
               <i style={{ width: barWidth(points[key]) }} />
               <em className="stat-base" />
             </span>
-            <span className={`stat-val ${points[key] > 0 ? 'up' : points[key] < 0 ? 'down' : ''}`}>
-              {100 + points[key]}
+            <span className={`stat-val ${points[key] > 6 ? 'up' : points[key] < 6 ? 'down' : ''}`}>
+              {points[key]}
             </span>
           </div>
         ))}

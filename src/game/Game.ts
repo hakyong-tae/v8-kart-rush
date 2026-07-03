@@ -1,6 +1,6 @@
 import * as THREE from 'three'
 import { getCourse, type CourseDef } from './courses'
-import { getKart, getCharacter, combineStats, CHARACTERS, KARTS } from './roster'
+import { getKart, getCharacter, combineStats, pointsToMultipliers, CHARACTERS, KARTS } from './roster'
 import { Track, buildTrackMeshes, rng } from './track'
 import { Assets, buildDecorations, makeRider, makeClouds, makeRescuer } from './assets'
 import { Kart, resolveKartCollision } from './kart'
@@ -1008,17 +1008,17 @@ export class Game {
       r.vis.update(dt, r.speed, r.st, r.drift, false)
       r.group.visible = now - r.lastSeen < 5000
       if (r.group.visible && this.phase === 'racing') {
-        resolveKartCollision(this.kart, r.group.position)
+        resolveKartCollision(this.kart, r.group.position, pointsToMultipliers(getKart(r.color).stats).mass)
       }
     }
 
     // kart-vs-kart collisions with AIs (both sides corrected)
     if (this.phase === 'racing') {
       for (const ai of this.ais) {
-        resolveKartCollision(this.kart, ai.kart.pos)
-        resolveKartCollision(ai.kart, this.kart.pos)
+        resolveKartCollision(this.kart, ai.kart.pos, ai.kart.stats.mass)
+        resolveKartCollision(ai.kart, this.kart.pos, this.kart.stats.mass)
         for (const other of this.ais) {
-          if (other !== ai) resolveKartCollision(ai.kart, other.kart.pos)
+          if (other !== ai) resolveKartCollision(ai.kart, other.kart.pos, other.kart.stats.mass)
         }
       }
     }
