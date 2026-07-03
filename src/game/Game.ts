@@ -1499,8 +1499,10 @@ export class Game {
 
   minimapOutline(): { x: number; z: number }[] {
     const pts: { x: number; z: number }[] = []
+    // P2P(다운힐) 코스는 숨은 복귀 레그를 제외한 열린 선
+    const endFrac = this.course.p2pFinishT ? this.course.p2pFinishT + 0.055 : 1
     for (let i = 0; i <= 100; i++) {
-      const s = this.track.sampleAt(Math.floor((i / 100) * this.track.N))
+      const s = this.track.sampleAt(Math.floor((i / 100) * endFrac * this.track.N))
       pts.push({ x: s.pos.x, z: s.pos.z })
     }
     return pts

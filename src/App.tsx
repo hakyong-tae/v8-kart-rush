@@ -252,7 +252,10 @@ function CoursePreview({ courseId, stroke }: { courseId: string; stroke: string 
       if (i === 0) ctx.moveTo(x, y)
       else ctx.lineTo(x, y)
     })
-    ctx.closePath()
+    // P2P(다운힐)는 열린 선 — 시작/끝이 떨어져 있으면 닫지 않는다
+    const f = o[0]
+    const l = o[o.length - 1]
+    if (Math.hypot(f.x - l.x, f.z - l.z) < 30) ctx.closePath()
     ctx.stroke()
   }, [courseId, stroke])
   return <canvas ref={ref} className="course-preview" />
