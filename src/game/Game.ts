@@ -866,6 +866,23 @@ export class Game {
       }
     }
 
+    // P2P(다운힐) 코스: 결승선 t 통과 시 완주 (플레이어 + AI)
+    const p2p = this.course.p2pFinishT
+    if (p2p && this.phase === 'racing') {
+      const fIdx = Math.floor(p2p * this.track.N)
+      const cpNeed = Math.floor(p2p * 8)
+      const crossed = (kart: Kart) =>
+        kart.cpTotal >= cpNeed && kart.trackIdx >= fIdx && kart.trackIdx < fIdx + 90
+      if (!this.kart.finished && crossed(this.kart)) this.finishLocal(now)
+      for (const ai of this.ais) {
+        if (!ai.finished && crossed(ai.kart)) {
+          ai.finished = true
+          ai.kart.finished = true
+          ai.finishMs = now - this.goTime
+        }
+      }
+    }
+
     // the rescuer also drags you back if you insist on driving the wrong way
     if (!this.rescue && this.phase === 'racing' && this.kart.wrongWayT > 4.5) {
       this.startRescue()

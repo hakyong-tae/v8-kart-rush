@@ -251,6 +251,14 @@ export class Kart {
     }
     if (this.offroad && !boosting && this.y < 0.2) this.speed *= Math.exp(-course.offroadDrag * dt)
 
+    // 경사: 내리막 가속 / 오르막 감속 (스키 활강 느낌 — 평지 코스는 slope 0)
+    if (!this.airborne && !this.launched) {
+      const sl = this.track.slopeAt(this.trackIdx)
+      if (sl !== 0) {
+        this.speed = Math.min(this.speed - sl * 7 * dt, BOOSTER_SPEED * this.stats.speed + 2)
+      }
+    }
+
     // drift state machine (no drifting mid-air, none while cannon-launched)
     if (this.launched) {
       // ballistic flight: ignore steering/drift, move by fixed launch velocity

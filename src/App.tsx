@@ -212,10 +212,13 @@ const outlineCache = new Map<string, { x: number; z: number }[]>()
 function courseOutline(courseId: string) {
   let o = outlineCache.get(courseId)
   if (!o) {
-    const t = new Track(getCourse(courseId))
+    const course = getCourse(courseId)
+    const t = new Track(course)
     o = []
+    // P2P 코스는 숨은 복귀 레그를 미니맵에서 제외 (선 모양이 됨)
+    const endFrac = course.p2pFinishT ? course.p2pFinishT + 0.055 : 1
     for (let i = 0; i <= 100; i++) {
-      const s = t.sampleAt(Math.floor((i / 100) * t.N))
+      const s = t.sampleAt(Math.floor((i / 100) * endFrac * t.N))
       o.push({ x: s.pos.x, z: s.pos.z })
     }
     outlineCache.set(courseId, o)

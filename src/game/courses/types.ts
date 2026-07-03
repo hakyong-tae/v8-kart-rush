@@ -70,4 +70,8 @@ export interface CourseDef {
   bank?: { t0: number; t1: number; slope: number }[]
   /** 하늘 맵: 지면 평면을 구름바다로 멀리 내림 */
   skyMap?: boolean
+  /** 포인트-투-포인트 코스: 결승선 t (0..1). 랩은 1, t 이후 구간은 숨은 복귀 레그 */
+  p2pFinishT?: number
+  /** 산 능선: 도로 가장자리에서 바닥까지 산비탈 면을 내려 그림 */
+  ridge?: boolean
 }

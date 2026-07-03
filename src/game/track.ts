@@ -36,6 +36,8 @@ export class Track {
   auxRoadFn: ((pos: THREE.Vector3) => boolean) | null = null
   /** 뱅크 기울기 (lat 1당 높이) — 평지/뱅크 없으면 전부 0 */
   bankSlope: Float32Array
+  /** 진행방향 경사 (dh/ds) — 내리막이 음수. 평지 코스는 전부 0 */
+  slope: Float32Array
 
   constructor(course: CourseDef) {
     this.course = course
@@ -78,6 +80,15 @@ export class Track {
       for (let i = 0; i < this.N; i++) this.samples[i].pos.y = hAt(i / this.N)
     }
 
+    // 진행방향 경사 베이크 (내리막 가속용)
+    this.slope = new Float32Array(this.N)
+    const ds = this.totalLength / this.N
+    for (let i = 0; i < this.N; i++) {
+      const hPrev = this.samples[(i - 1 + this.N) % this.N].pos.y
+      const hNext = this.samples[(i + 1) % this.N].pos.y
+      this.slope[i] = (hNext - hPrev) / (2 * ds)
+    }
+
     // 뱅크 기울기 베이크 (구간 양끝 30샘플 코사인 이즈)
     this.bankSlope = new Float32Array(this.N)
     for (const bk of course.bank ?? []) {
@@ -90,6 +101,11 @@ export class Track {
         this.bankSlope[((i % this.N) + this.N) % this.N] = bk.slope * k
       }
     }
+  }
+
+  /** 진행방향 경사 (내리막 음수) */
+  slopeAt(idx: number): number {
+    return this.slope[((idx % this.N) + this.N) % this.N]
   }
 
   /** 도로 표면 높이 (중심 높이 + 뱅크 기울기×횡위치). 평지 코스는 항상 0 */
@@ -193,10 +209,11 @@ export class Track {
     return false
   }
 
-  // Spawn grid: 2 columns, behind the start line
+  // Spawn grid: 2 columns, behind the start line.
+  // P2P(다운힐) 코스는 출발선 '앞'에 배치 — 뒤쪽은 숨은 복귀 레그라서.
   spawnPose(slot: number): { pos: THREE.Vector3; heading: number; idx: number } {
     const back = 12 + Math.floor(slot / 2) * 7 // samples behind start
-    const idx = this.N - back
+    const idx = this.course.p2pFinishT ? 6 + Math.floor(slot / 2) * 7 : this.N - back
     const s = this.sampleAt(idx)
     const lat = slot % 2 === 0 ? -this.halfWidth * 0.4 : this.halfWidth * 0.4
     const pos = new THREE.Vector3(
@@ -297,6 +314,10 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
   const sinkRanges = (course.gimmicks ?? [])
     .filter((g) => g.type === 'sinkroad')
     .map((g) => [Math.floor(g.t0 * track.N), Math.floor(g.t1 * track.N)] as const)
+  // P2P: 피니시+활주로 이후의 숨은 복귀 레그는 도로를 그리지 않는다
+  if (course.p2pFinishT) {
+    sinkRanges.push([Math.floor(course.p2pFinishT * track.N) + 55, track.N - 5] as const)
+  }
   const inGap = sinkRanges.length
     ? (i: number) => sinkRanges.some(([a, b]) => i >= a && i <= b)
     : undefined
@@ -367,12 +388,30 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
     const shoulderCol = new THREE.Color(theme.ground).lerp(new THREE.Color(theme.road), 0.4)
     const skirtMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })
     const skirtOuter = track.wallDist + 3
-    const skL = (i: number) => track.pitAtIndex(i, 1)
-    const skR = (i: number) => track.pitAtIndex(i, -1)
+    const hidden = (i: number) =>
+      !!course.p2pFinishT && i >= Math.floor(course.p2pFinishT * track.N) + 55 && i <= track.N - 5
+    const skL = (i: number) => track.pitAtIndex(i, 1) || hidden(i)
+    const skR = (i: number) => track.pitAtIndex(i, -1) || hidden(i)
     group.add(
       new THREE.Mesh(makeStrip(track, () => hw + 1.1, () => skirtOuter, 0.005, () => shoulderCol, skL), skirtMat),
       new THREE.Mesh(makeStrip(track, () => -skirtOuter, () => -hw - 1.1, 0.005, () => shoulderCol, skR), skirtMat),
     )
+  }
+
+  // 산 능선 (P2P 다운힐 등): 도로 옆면을 바닥까지 내려 산비탈처럼 보이게
+  if (course.ridge) {
+    const flankCol = new THREE.Color(theme.ground).multiplyScalar(0.92)
+    const flankMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })
+    const hiddenR = (i: number) =>
+      !!course.p2pFinishT && i >= Math.floor(course.p2pFinishT * track.N) + 55 && i <= track.N - 5
+    for (const side of [1, -1] as const) {
+      group.add(
+        new THREE.Mesh(
+          makeWall(track, side * (track.wallDist + 3), -70, 0, () => flankCol, hiddenR),
+          flankMat,
+        ),
+      )
+    }
   }
 
   // Guardrails (KartRider-style walls) on both sides — open maps have none,
@@ -402,8 +441,10 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
     }
     const scGapAt = (i: number, side: 1 | -1) =>
       scGaps.some((gp) => gp.side === side && i >= gp.i0 && i <= gp.i1)
-    const skipL = (i: number) => track.pitAtIndex(i, 1) || scGapAt(i, 1)
-    const skipR = (i: number) => track.pitAtIndex(i, -1) || scGapAt(i, -1)
+    const hiddenLeg = (i: number) =>
+      !!course.p2pFinishT && i >= Math.floor(course.p2pFinishT * track.N) + 55 && i <= track.N - 5
+    const skipL = (i: number) => track.pitAtIndex(i, 1) || scGapAt(i, 1) || hiddenLeg(i)
+    const skipR = (i: number) => track.pitAtIndex(i, -1) || scGapAt(i, -1) || hiddenLeg(i)
     const railL = new THREE.Mesh(makeWall(track, track.wallDist, 0, 0.95, railColor, skipL), railMat)
     const railR = new THREE.Mesh(makeWall(track, -track.wallDist, 0, 0.95, railColor, skipR), railMat)
     group.add(railL, railR)
@@ -545,6 +586,38 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
       new THREE.MeshBasicMaterial({ vertexColors: true }),
     )
     group.add(mesh)
+  }
+
+  // P2P 결승선 체커 밴드 (피니시 t 위치)
+  if (course.p2pFinishT) {
+    const positions: number[] = []
+    const colors: number[] = []
+    const indices: number[] = []
+    const cells = 10
+    const rows = 3
+    const white = new THREE.Color(0xffffff)
+    const black = new THREE.Color(0x222222)
+    const fIdx = Math.floor(course.p2pFinishT * track.N)
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cells; c++) {
+        const s0 = track.sampleAt(fIdx - 1 + r)
+        const s1 = track.sampleAt(fIdx + r)
+        const l0 = -hw + (c / cells) * 2 * hw
+        const l1 = -hw + ((c + 1) / cells) * 2 * hw
+        const col = (r + c) % 2 === 0 ? white : black
+        const base = positions.length / 3
+        for (const [sm, l] of [[s0, l0], [s0, l1], [s1, l0], [s1, l1]] as const) {
+          positions.push(sm.pos.x + sm.nor.x * l, track.groundY(fIdx - 1 + r, l) + 0.025, sm.pos.z + sm.nor.z * l)
+          colors.push(col.r, col.g, col.b)
+        }
+        indices.push(base, base + 2, base + 1, base + 1, base + 2, base + 3)
+      }
+    }
+    const geo = new THREE.BufferGeometry()
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3))
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3))
+    geo.setIndex(indices)
+    group.add(new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ vertexColors: true })))
   }
 
   // Boost pads — striped chevron strips (bright/deep cyan bands)

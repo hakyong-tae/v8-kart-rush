@@ -9,8 +9,9 @@ import { volcano } from './volcano'
 import { factory } from './factory'
 import { jungle } from './jungle'
 import { sky } from './sky'
+import { alpine } from './alpine'
 
-export const COURSES: CourseDef[] = [sunny, canyon, ice, beach, neon, volcano, factory, jungle, sky]
+export const COURSES: CourseDef[] = [sunny, canyon, ice, beach, neon, volcano, factory, jungle, sky, alpine]
 
 export function getCourse(id: string): CourseDef {
   const c = COURSES.find((c) => c.id === id)

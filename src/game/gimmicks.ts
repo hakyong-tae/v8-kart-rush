@@ -272,14 +272,15 @@ export class GimmickManager {
           geo.computeVertexNormals()
           const mesh = new THREE.Mesh(geo, mat)
           this.group.add(mesh)
-          // 아래 용암/물 바닥
+          // 아래 용암/물 바닥 — 트랙 방향에 맞춘 직사각 (도로 옆으로 삐져나오지 않게)
           const mid = track.sampleAt(Math.floor((i0 + i1) / 2))
-          const span = ((i1 - i0) / track.N) * track.totalLength + 30
+          const span = ((i1 - i0) / track.N) * track.totalLength + 14
           const floor = new THREE.Mesh(
-            new THREE.PlaneGeometry(span, span),
+            new THREE.PlaneGeometry(hw * 4, span),
             new THREE.MeshBasicMaterial({ color: def.floor ?? 0xff5a26 }),
           )
           floor.rotation.x = -Math.PI / 2
+          floor.rotation.z = -Math.atan2(mid.tan.x, mid.tan.z)
           floor.position.set(mid.pos.x, mid.pos.y - 7.5, mid.pos.z)
           this.group.add(floor)
           this.sinkroads.push({ def, mesh, mat, i0, i1 })

@@ -24,6 +24,7 @@ const CONFS: Record<string, AmbientConf> = {
   factory: { color: 0xffd070, size: 0.4, fall: -0.5, drift: 0.9, opacity: 0.7, additive: true, yMax: 12 }, // 떠오르는 불꽃
   sunny: { color: 0xffffff, size: 0.36, fall: 0.45, drift: 1.1, opacity: 0.5 }, // 꽃가루
   sky: { color: 0xffffff, size: 0.7, fall: 0.2, drift: 2.6, opacity: 0.45 }, // 흘러가는 구름 결
+  alpine: { color: 0xffffff, size: 0.55, fall: 2.0, drift: 1.2, opacity: 0.95 }, // 활강 눈보라
 }
 
 const RANGE = 55 // 카메라 주변 박스 반경
@@ -103,8 +104,9 @@ export class AmbientFX {
       else if (arr[j] > center.x + RANGE) arr[j] -= RANGE * 2
       if (arr[j + 2] < center.z - RANGE) arr[j + 2] += RANGE * 2
       else if (arr[j + 2] > center.z + RANGE) arr[j + 2] -= RANGE * 2
-      if (arr[j + 1] < 0) arr[j + 1] += yMax
-      else if (arr[j + 1] > yMax + 2) arr[j + 1] -= yMax
+      // 고도가 있는 코스(알파인/스카이)에서도 보이도록 카메라 기준으로 재순환
+      if (arr[j + 1] < center.y - 12) arr[j + 1] += yMax + 12
+      else if (arr[j + 1] > center.y + yMax) arr[j + 1] -= yMax + 12
     }
     attr.needsUpdate = true
   }

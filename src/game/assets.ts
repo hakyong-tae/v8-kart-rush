@@ -93,6 +93,10 @@ export const SCENERY_MODELS: Record<string, string[]> = {
     'pirate/palm-detailed-bend', 'pirate/palm-detailed-straight',
   ],
   sky: ['landmarks/hot-air-balloon', 'nature/tree_default'],
+  alpine: [
+    'holiday/tree-snow-a', 'holiday/tree-snow-b', 'holiday/tree-snow-c',
+    'holiday/snow-pile', 'holiday/snowman', 'nature/rock_largeA', 'nature/rock_tallA',
+  ],
 }
 
 export class Assets {
@@ -997,6 +1001,27 @@ export function buildDecorations(track: Track, assets: Assets): THREE.Group {
           s.pos.z + s.nor.z * lat,
         )
         group.add(puff)
+      }
+      break
+    }
+    case 'alpine': {
+      // 설산 활강로 — 눈 덮인 침엽수 + 바위 + 눈사람 응원단
+      scatter(['holiday/tree-snow-a', 'holiday/tree-snow-b', 'holiday/tree-snow-c'], [5.5, 9], 55, wall + 3, wall + 40)
+      scatter(['holiday/snow-pile'], [1.2, 2.4], 20, wall + 2, wall + 18)
+      scatter(['nature/rock_largeA', 'nature/rock_tallA'], [4, 9], 12, wall + 6, wall + 35)
+      scatter(['holiday/snowman'], [2, 2.4], 6, wall + 1.5, wall + 6)
+      // 슬로프 경계 폴 (스키장 코스 표시)
+      for (let k = 0; k < 26; k++) {
+        const idx = Math.floor((k / 26) * N * (track.course.p2pFinishT ?? 1))
+        const side = k % 2 === 0 ? 1 : -1
+        const s = track.sampleAt(idx)
+        const lat = side * (wall + 0.8)
+        const pole = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.08, 0.08, 2.2, 5),
+          new THREE.MeshBasicMaterial({ color: k % 4 < 2 ? 0xff5d4d : 0x2b6df0 }),
+        )
+        pole.position.set(s.pos.x + s.nor.x * lat, track.groundY(idx, lat) + 1.1, s.pos.z + s.nor.z * lat)
+        group.add(pole)
       }
       break
     }
