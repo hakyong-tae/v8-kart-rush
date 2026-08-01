@@ -50,31 +50,37 @@ export interface CharacterDef {
   taglineEn: string
 }
 
-// 캐릭터 보정 — 보이는 4합 0, 숨은 3합 +2 (전원 총합 +2)
+// 캐릭터 보정 — 보이는 4합 0, 숨은 3합 +2 (전원 총합 +2).
+// 2026-07 재밸런스: 한 축에 +3 몰아주고 나머지로 상쇄 → 드라이버 선택이 확 체감되는 특화형.
 export const CHARACTERS: CharacterDef[] = [
   {
+    // 올라운더 — 약점 없는 무난한 입문 픽. 보임 전부 0(순수 중립), 숨은은 안정 지향.
     id: 'moka', name: 'Moka', nameKo: '모카', suit: 0xffe14d, skin: 0xffd9b3, hat: 'cap', emoji: '🧢',
     stats: { speed: 0, accel: 0, handling: 0, drift: 0, weight: 1, miniturbo: 0, invinc: 1 },
-    tagline: '밸런스', taglineEn: 'Balanced',
+    tagline: '밸런스', taglineEn: 'All-round',
   },
   {
+    // 드리프트 에이스 — 드리프트 +3 & 미니터보 +2. 드리프트 카트에 태우면 슬라이드 괴물.
     id: 'coco', name: 'Coco', nameKo: '코코', suit: 0xff5d8a, skin: 0xffd9b3, hat: 'ribbon', emoji: '🎀',
-    stats: { speed: -1, accel: -1, handling: 0, drift: 2, weight: 0, miniturbo: 2, invinc: 0 },
-    tagline: '터보', taglineEn: 'Turbo',
+    stats: { speed: -2, accel: 0, handling: -1, drift: 3, weight: 0, miniturbo: 2, invinc: 0 },
+    tagline: '드리프트', taglineEn: 'Drift',
   },
   {
+    // 그립 마스터 — 핸들 +3 & 무적 +2. 안 미끄러지고 피격 회복 빠름. 트위스티 코스/입문용.
     id: 'pico', name: 'Pico', nameKo: '피코', suit: 0x4aa8ff, skin: 0xffe3c4, hat: 'helmet', emoji: '🪖',
-    stats: { speed: -1, accel: -1, handling: 2, drift: 0, weight: 0, miniturbo: 0, invinc: 2 },
-    tagline: '안정', taglineEn: 'Steady',
+    stats: { speed: -1, accel: -1, handling: 3, drift: -1, weight: 0, miniturbo: 0, invinc: 2 },
+    tagline: '그립', taglineEn: 'Grip',
   },
   {
+    // 스피드 데몬 — 최고속 +3, 대신 컨트롤 희생. 헤비에 태우면 폭주 미사일.
     id: 'lime', name: 'Lime', nameKo: '라임', suit: 0x84e063, skin: 0xf2c9a0, hat: 'sunglasses', emoji: '🕶️',
-    stats: { speed: 2, accel: 0, handling: -1, drift: -1, weight: 1, miniturbo: 1, invinc: 0 },
+    stats: { speed: 3, accel: 0, handling: -1, drift: -2, weight: 1, miniturbo: 1, invinc: 0 },
     tagline: '스피드', taglineEn: 'Speed',
   },
   {
+    // 가속 스페셜 — 가속 +3 & 미니터보/무적. 헤비의 굼뜬 가속을 메워주는 궁합.
     id: 'toto', name: 'Toto', nameKo: '토토', suit: 0xff8c2e, skin: 0xffd9b3, hat: 'antenna', emoji: '📡',
-    stats: { speed: -1, accel: 2, handling: -1, drift: 0, weight: 0, miniturbo: 1, invinc: 1 },
+    stats: { speed: -1, accel: 3, handling: -1, drift: -1, weight: 0, miniturbo: 1, invinc: 1 },
     tagline: '가속', taglineEn: 'Accel',
   },
 ]
@@ -137,22 +143,25 @@ const S = (
   weight: number, miniturbo: number, invinc: number,
 ): StatPoints => ({ speed, accel, handling, drift, weight, miniturbo, invinc })
 
+// 2026-07 재밸런스: 각 카트에 뚜렷한 정체성(스탯 극값 허용) + 클래스 내부 다양성.
+//   보임합(S+A+H+D) = 24 전 카트 고정. 숨은합은 클래스 개성(라이트 낮음↔헤비 높음).
+//   축: 속도(S) ↔ 가속(A) / 핸들(H) ↔ 드리프트(D). 캐릭터 보정과 곱해 조합 개성이 살아난다.
 export const KARTS: KartDef[] = [
-  // ── Light: 민첩·터보형 (가볍고 충돌에 약함) ──────────────────────────────
-  kart('red',    'Spark R',  '스파크 R',  'karts/formula',          Y2, 1.2,  '#e04438', 'light',  S(5, 7, 8, 4, 2, 7, 2), [0, 0.42, -0.18], 0.62),
-  kart('white',  'Comet X',  '코멧 X',    'karts/kartred',          Y2, 1.2,  '#ff8c5a', 'light',  S(4, 6, 5, 9, 2, 9, 3), [0, 0.52, -0.1],  0.62, { stripBase: true }),
-  kart('green',  'Turbo G',  '터보 G',    'karts/gokart',            0, 2.4,  '#3a6df0', 'light',  S(3, 9, 7, 5, 3, 8, 3), [0, 0.28, -0.05], 0.6),
-  kart('hover',  'Volt V',   '볼트 V',    'karts/hover',             0, 2.4,  '#b33960', 'light',  S(4, 5, 9, 6, 1, 7, 4), [0, 0.42, -0.1],  0.5,  { hover: true, stripBase: true }),
-  // ── Medium: 균형형 ───────────────────────────────────────────────────────
-  kart('race',   'Racer K',  '레이서 K',  'karts/race',              0, 2.4,  '#ff5d4d', 'medium', S(6, 6, 6, 6, 5, 6, 5), [0, 0.35, -0.3],  0.75),
-  kart('future', 'Nova F',   '노바 F',    'karts/race-future',       0, 2.4,  '#4a8dff', 'medium', S(6, 5, 6, 7, 4, 7, 5), [0, 0.5, -0.25],  0.72),
-  kart('sporty', 'Zoom Z',   '줌 Z',      'karts/sportscar',         0, 2.4,  '#d8e6f2', 'medium', S(8, 5, 6, 5, 5, 5, 5), [0, 0.78, -0.15], 0.58, { stripBase: true }),
-  kart('sedan',  'AE86',     'AE86',      'karts/sedan',             0, 2.4,  '#8fb8c9', 'medium', S(6, 4, 6, 8, 5, 8, 4), [0, 0.42, -0.15], 0.6),
-  // ── Heavy: 무게·무적형 (충돌 탱크, 굼뜸) ────────────────────────────────
-  kart('orange', 'Max O',    '맥스 O',    'karts/hotrod',          -Y2, 1.68, '#9fe8d9', 'heavy',  S(9, 4, 6, 5, 8, 4, 7), [0, 1.18, -0.5],  0.55),
-  kart('hatch',  'Dash H',   '대시 H',    'karts/hatchback-sports',  0, 2.4,  '#43c463', 'heavy',  S(8, 6, 5, 5, 7, 4, 6), [0, 0.62, -0.25], 0.72),
-  kart('muscle', 'Boss M',   '보스 M',    'karts/sedan-sports',      0, 2.4,  '#ff9d2e', 'heavy',  S(9, 5, 5, 5, 9, 3, 8), [0, 0.55, -0.35], 0.72),
-  kart('boxy',   'Boxy B',   '박시 B',    'karts/boxkart',           Y, 1.92, '#c0392b', 'heavy',  S(8, 4, 6, 6, 10, 2, 7), [0, 1.0, -0.15],  0.55),
+  // ── Light: 가볍고 미니터보 강함, 충돌에 약함 ──────────────────────────────
+  kart('red',    'Spark R',  '스파크 R',  'karts/formula',          Y2, 1.2,  '#e04438', 'light',  S(5, 7, 8, 4, 2, 8, 3), [0, 0.42, -0.18], 0.62), // 테크니컬: 정밀 코너
+  kart('white',  'Comet X',  '코멧 X',    'karts/kartred',          Y2, 1.2,  '#ff8c5a', 'light',  S(3, 5, 6, 10, 2, 9, 3),[0, 0.52, -0.1],  0.62, { stripBase: true }), // 드리프트 몬스터
+  kart('green',  'Turbo G',  '터보 G',    'karts/gokart',            0, 2.4,  '#3a6df0', 'light',  S(3, 10, 6, 5, 3, 8, 3),[0, 0.28, -0.05], 0.6),  // 가속 로켓
+  kart('hover',  'Volt V',   '볼트 V',    'karts/hover',             0, 2.4,  '#b33960', 'light',  S(4, 5, 10, 5, 1, 7, 4),[0, 0.42, -0.1],  0.5,  { hover: true, stripBase: true }), // 글라이더: 최고 그립
+  // ── Medium: 균형·다재다능 ─────────────────────────────────────────────────
+  kart('race',   'Racer K',  '레이서 K',  'karts/race',              0, 2.4,  '#ff5d4d', 'medium', S(6, 6, 6, 6, 5, 6, 5), [0, 0.35, -0.3],  0.75), // 올라운더 기준점
+  kart('future', 'Nova F',   '노바 F',    'karts/race-future',       0, 2.4,  '#4a8dff', 'medium', S(6, 5, 6, 7, 4, 7, 5), [0, 0.5, -0.25],  0.72), // 드리프트 튜닝
+  kart('sporty', 'Zoom Z',   '줌 Z',      'karts/sportscar',         0, 2.4,  '#d8e6f2', 'medium', S(8, 5, 6, 5, 6, 5, 5), [0, 0.44, -0.12], 0.58, { stripBase: true }), // 스피드스터 (차체 낮음 — 라이더 y 낮춤)
+  kart('sedan',  'AE86',     'AE86',      'karts/sedan',             0, 2.4,  '#8fb8c9', 'medium', S(5, 5, 6, 8, 5, 8, 4), [0, 0.42, -0.15], 0.6),  // 토게 드리프터
+  // ── Heavy: 무겁고 튼튼, 가속 굼뜸 — 4종 개성 분리 ──────────────────────────
+  kart('orange', 'Max O',    '맥스 O',    'karts/hotrod',          -Y2, 1.68, '#9fe8d9', 'heavy',  S(10, 3, 6, 5, 8, 4, 7), [0, 1.18, -0.5],  0.55), // 드래그: 최고속 최강, 가속 최악
+  kart('hatch',  'Dash H',   '대시 H',    'karts/hatchback-sports',  0, 2.4,  '#43c463', 'heavy',  S(7, 7, 5, 5, 7, 5, 6), [0, 0.62, -0.25], 0.72), // 핫해치: 민첩한 헤비(입문 헤비)
+  kart('muscle', 'Boss M',   '보스 M',    'karts/sedan-sports',      0, 2.4,  '#ff9d2e', 'heavy',  S(9, 4, 5, 6, 9, 3, 8), [0, 0.55, -0.35], 0.72), // 브루저: 방어 최강, 밀어붙임
+  kart('boxy',   'Boxy B',   '박시 B',    'karts/boxkart',           Y, 1.92, '#c0392b', 'heavy',  S(8, 4, 7, 5, 10, 2, 7),[0, 1.0, -0.15],  0.55), // 탱크: 최중량·안 밀림, 터보 없음
 ]
 
 export function getKart(id: string): KartDef {

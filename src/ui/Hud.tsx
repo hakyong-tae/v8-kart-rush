@@ -241,6 +241,17 @@ export function Hud({
       {snap.rescuing && <div className="hud-center rescuing">{t('rescuing')}</div>}
       {snap.finished && <div className="hud-center finish">FINISH!</div>}
 
+      {/* 1등 도착 후 완주 제한시간 카운트다운 (미완주 시 리타이어) */}
+      {snap.finishCountdown !== null && !snap.finished && (
+        <div className="finish-timer">
+          <span className="finish-timer-num">{Math.ceil(snap.finishCountdown)}</span>
+          <span className="finish-timer-label">{t('finishRush')}</span>
+        </div>
+      )}
+      {snap.finishCountdown !== null && snap.finished && (
+        <div className="hud-center await-others">{t('awaitOthers')}</div>
+      )}
+
       <div className="hud-controls">
         {raceMode === 'speed' ? t('controlsSpeed') : t('controlsItem')}
       </div>

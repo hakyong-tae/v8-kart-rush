@@ -1,6 +1,6 @@
 // src/game/gimmicks.test.ts
 import { describe, it, expect } from 'vitest'
-import { inSplineRange, cyclePhase, spinbarAngle, bridgeY, bridgeSolid, pressY, nearPolyline } from './gimmicks'
+import { inSplineRange, cyclePhase, spinbarAngle, bridgeY, bridgeSolid, pressY, nearPolyline, mudLatRange } from './gimmicks'
 
 describe('inSplineRange', () => {
   it('plain range', () => {
@@ -61,6 +61,23 @@ describe('press', () => {
     expect(pressY(0.83)).toBeLessThan(3.2)
     expect(pressY(0.9)).toBe(0.5)
     expect(pressY(0.97)).toBeGreaterThan(0.5)
+  })
+})
+
+describe('mudLatRange', () => {
+  const mud = (extra: object) => ({ type: 'mud' as const, t0: 0, t1: 0.1, ...extra })
+  it('lane/w partial width, clamped to ±0.92', () => {
+    expect(mudLatRange(mud({ lane: 0.15, w: 0.85 }))).toEqual([-0.7, 0.92])
+    expect(mudLatRange(mud({ lane: -0.15, w: 0.85 }))).toEqual([-0.92, 0.7])
+  })
+  it('side back-compat', () => {
+    expect(mudLatRange(mud({ side: 1 }))).toEqual([0, 0.92])
+    expect(mudLatRange(mud({ side: -1 }))).toEqual([-0.92, 0])
+    expect(mudLatRange(mud({ side: 0 }))).toEqual([-0.92, 0.92])
+    expect(mudLatRange(mud({}))).toEqual([-0.92, 0.92])
+  })
+  it('lane/w wins over side', () => {
+    expect(mudLatRange(mud({ side: 1, lane: 0, w: 0.5 }))).toEqual([-0.5, 0.5])
   })
 })
 

@@ -16,6 +16,10 @@ export interface ItemBoxRowDef {
 export interface JumpPadDef {
   t: number // ramp start (spline position 0..1)
   len: number // ramp length in t units
+  lane?: number // lateral center (halfWidth 비율 -1..1, 기본 0) — 부분 폭 점프대
+  w?: number // half-extent (halfWidth 비율, 기본 0.8 = 거의 전폭)
+  /** 탄도 발사 목표 t — 지정하면 타이밍/속도 무관하게 이 지점에 정확히 착지 (무너지는 다리 등 보장 크로싱) */
+  launchTo?: number
 }
 
 // A cliff section: falling off this side of the road drops you into the void

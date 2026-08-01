@@ -336,7 +336,11 @@ export class Kart {
     // pos.y = 발밑 도로 표면 높이 (고저차/뱅크 코스). kart.y는 그 위 상대 높이
     this.pos.y = this.track.groundY(this.trackIdx, lat2)
     const onAux2 = this.track.auxRoadFn?.(this.pos) ?? false
-    const overPit = this.track.isPit(this.trackIdx, lat2) && !onAux2
+    const softAux = this.track.auxSoftFn?.(this.pos) ?? false
+    const wallDist = this.track.wallDist
+    // 지름길 낙하 밴드 + 도로 깊이 밖 → 바닥이 꺼진 것으로 취급(구름이 복귀). 도로/갓길은 보호.
+    const fallAux = (this.track.auxFallFn?.(this.pos) ?? false) && Math.abs(lat2) > wallDist + 3
+    const overPit = (this.track.isPit(this.trackIdx, lat2) && !onAux2) || fallAux
     if (!this.airborne && overPit && this.y <= 0.01) {
       this.airborne = true // drove off an edge — start falling
       this.vy = Math.min(this.vy, 0)
@@ -367,9 +371,10 @@ export class Kart {
 
     // guardrail walls (KartRider tracks are walled) — no wall along pit edges,
     // and open water maps have no wall at all (the sea IS the boundary)
-    const wallD = this.track.wallDist
+    const wallD = wallDist
     const openWater = course.open && course.ocean
-    if (Math.abs(lat2) > wallD && !overPit && !openWater && !onAux2) {
+    // 소프트 갓길에선 클램프 금지 — 뒤처진 trackIdx로 확 당겨 순간이동하던 버그 원인
+    if (Math.abs(lat2) > wallD && !overPit && !openWater && !onAux2 && !softAux) {
       const s = this.track.sampleAt(this.trackIdx)
       const side = Math.sign(lat2)
       // clamp back inside

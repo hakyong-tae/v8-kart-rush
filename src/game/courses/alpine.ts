@@ -40,8 +40,8 @@ export const alpine: CourseDef = {
     { t: 0.397, len: 0.014 }, // 크레바스 직전 (점프 콤보용)
   ],
   jumpPads: [
-    { t: 0.08, len: 0.012 },  // 첫 킥커
-    { t: 0.489, len: 0.012 }, // 마지막 카빙 킥커
+    { t: 0.08, len: 0.012, lane: 0, w: 0.55 },  // 첫 킥커
+    { t: 0.489, len: 0.012, lane: 0, w: 0.55 }, // 마지막 카빙 킥커
   ],
   pits: [],
   itemRows: [

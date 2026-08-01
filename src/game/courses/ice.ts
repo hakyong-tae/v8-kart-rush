@@ -21,7 +21,7 @@ export const ice: CourseDef = {
     { t: 0.12, len: 0.016 },
     { t: 0.6, len: 0.016 },
   ],
-  jumpPads: [{ t: 0.45, len: 0.012 }],
+  jumpPads: [{ t: 0.45, len: 0.012, lane: 0.15, w: 0.3 }],
   pits: [],
   itemRows: [
     { t: 0.25, lanes: [-0.6, 0, 0.6] },
@@ -29,11 +29,13 @@ export const ice: CourseDef = {
     { t: 0.88, lanes: [-0.6, 0, 0.6] },
   ],
   gimmicks: [
+    // 점프대 뒤 진창눈 (틈은 오른쪽 가장자리)
+    { type: 'mud', t0: 0.462, t1: 0.474, lane: 0.15, w: 0.85 },
     { type: 'bumper', t: 0.32, lane: -0.45 },
     { type: 'bumper', t: 0.345, lane: 0.4 },
     { type: 'bumper', t: 0.37, lane: 0 },
-    // 북쪽 위글 바깥 빙판 우회로 (절약 21)
-    { type: 'shortcut', entryT: 0.347, exitT: 0.569, via: [[30, 150], [-25, 162]], width: 5.5 },
+    // 북쪽 위글 바깥 빙판 우회로 — 중간이 진창눈: 무부스트 +1.7s 손해 / 풀부스터 -2.0s 이득
+    { type: 'shortcut', entryT: 0.347, exitT: 0.569, via: [[30, 150], [-25, 162]], width: 5.5, swamp: [0.35, 0.65] },
   ],
   decorSeed: 31,
   theme: {

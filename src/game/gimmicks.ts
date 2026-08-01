@@ -2,12 +2,12 @@
 // All moving parts are PURE FUNCTIONS of race time → every client / ghost / AI
 // sees the same state with zero network sync.
 import * as THREE from 'three'
-import { NUM_CHECKPOINTS, type Track } from './track'
+import { NUM_CHECKPOINTS, shortcutCurve, type Track } from './track'
 import type { Kart } from './kart'
 import { preset } from './perf'
 
 export type GimmickDef =
-  | { type: 'mud'; t0: number; t1: number; side?: 1 | -1 | 0 } // 감속 노면
+  | { type: 'mud'; t0: number; t1: number; side?: 1 | -1 | 0; lane?: number; w?: number } // 감속 노면 (lane/w: halfWidth 비율 부분 폭 — 점프대로 넘거나 빈 틈으로 우회)
   | { type: 'conveyor'; t0: number; t1: number; dir: 1 | -1; push: number } // 급류/벨트
   | { type: 'tide'; period: number; range: number } // 밀물/썰물 (open 맵 전용)
   | { type: 'bumper'; t: number; lane: number } // 핀볼 범퍼 (lane: halfWidth 비율 -1..1)
@@ -20,8 +20,20 @@ export type GimmickDef =
   | { type: 'geyser'; t: number; lane: number; period: number; warnSec: number } // 간헐천 — 분출 타면 점프
   | { type: 'hammer'; t: number; lane: number; period: number; variant?: 'hammer' | 'log' } // 진자 해머/통나무
   | { type: 'press'; t: number; lane: number; period: number } // 프레스
-  | { type: 'shortcut'; entryT: number; exitT: number; via: [number, number][]; width: number } // 샛길 (via: 월드 경유점)
+  | { type: 'shortcut'; entryT: number; exitT: number; via: [number, number][]; width: number; swamp?: [number, number] } // 샛길 (via: 월드 경유점, swamp: 경로 비율 구간의 늪 — 부스터 없이는 기어감, 부스터 중엔 완전 면역)
   | { type: 'cannon'; t: number; landT: number; flightSec: number } // 대포 — 밟으면 착지점으로 발사
+
+/** 머드 횡범위 (halfWidth 비율 [lo, hi]) — lane/w 우선, 없으면 side, 둘 다 없으면 전폭 */
+export function mudLatRange(def: Extract<GimmickDef, { type: 'mud' }>): [number, number] {
+  if (def.lane !== undefined || def.w !== undefined) {
+    const c = def.lane ?? 0
+    const w = def.w ?? 0.92
+    return [Math.max(-0.92, c - w), Math.min(0.92, c + w)]
+  }
+  if (def.side === 1) return [0, 0.92]
+  if (def.side === -1) return [-0.92, 0]
+  return [-0.92, 0.92]
+}
 
 /** 스플라인 t(0..1) 범위 판정 — 랩 경계(1→0) 래핑 지원 */
 export function inSplineRange(tFrac: number, t0: number, t1: number): boolean {
@@ -89,7 +101,7 @@ interface SinkroadRT { def: Extract<GimmickDef, { type: 'sinkroad' }>; mesh: THR
 interface GeyserRT { def: Extract<GimmickDef, { type: 'geyser' }>; column: THREE.Mesh; bubble: THREE.Mesh; center: THREE.Vector3 }
 interface HammerRT { def: Extract<GimmickDef, { type: 'hammer' }>; pivot: THREE.Group; center: THREE.Vector3; tanAxis: THREE.Vector3; norDir: THREE.Vector3 }
 interface PressRT { def: Extract<GimmickDef, { type: 'press' }>; plate: THREE.Mesh; center: THREE.Vector3 }
-interface ShortcutRT { def: Extract<GimmickDef, { type: 'shortcut' }>; samples: THREE.Vector3[] }
+interface ShortcutRT { def: Extract<GimmickDef, { type: 'shortcut' }>; samples: THREE.Vector3[]; swampSamples: THREE.Vector3[] | null }
 interface CannonRT { def: Extract<GimmickDef, { type: 'cannon' }>; pad: THREE.Vector3; land: THREE.Vector3 }
 
 export interface GimmickHit {
@@ -105,7 +117,7 @@ const dummy = new THREE.Object3D()
 
 export class GimmickManager {
   group = new THREE.Group()
-  private mud: Extract<GimmickDef, { type: 'mud' }>[] = []
+  private mud: { def: Extract<GimmickDef, { type: 'mud' }>; lo: number; hi: number }[] = []
   private conveyor: Extract<GimmickDef, { type: 'conveyor' }>[] = []
   private bumpers: BumperRT[] = []
   private crates: CratesRT[] = []
@@ -132,7 +144,8 @@ export class GimmickManager {
     defs.forEach((def) => {
       switch (def.type) {
         case 'mud': {
-          this.mud.push(def)
+          const [loF, hiF] = mudLatRange(def)
+          this.mud.push({ def, lo: loF, hi: hiF })
           const mat = new THREE.MeshLambertMaterial({ color: 0x6b4a26, transparent: true, opacity: 0.85 })
           const i0 = Math.floor(def.t0 * track.N)
           const i1 = Math.floor(def.t1 * track.N)
@@ -140,9 +153,10 @@ export class GimmickManager {
           const indices: number[] = []
           for (let k = i0; k <= i1; k++) {
             const s = track.sampleAt(k)
-            const w = hw * 0.92
-            positions.push(s.pos.x - s.nor.x * w, track.groundY(k, -w) + 0.035, s.pos.z - s.nor.z * w)
-            positions.push(s.pos.x + s.nor.x * w, track.groundY(k, w) + 0.035, s.pos.z + s.nor.z * w)
+            const lo = hw * loF
+            const hi = hw * hiF
+            positions.push(s.pos.x + s.nor.x * lo, track.groundY(k, lo) + 0.035, s.pos.z + s.nor.z * lo)
+            positions.push(s.pos.x + s.nor.x * hi, track.groundY(k, hi) + 0.035, s.pos.z + s.nor.z * hi)
             if (k < i1) {
               const a = (k - i0) * 2
               indices.push(a, a + 2, a + 1, a + 1, a + 2, a + 3)
@@ -354,22 +368,9 @@ export class GimmickManager {
           break
         }
         case 'shortcut': {
-          // 진입/탈출은 도로 가장자리에서 시작해 via 경유점을 지나는 흙길
-          const sideOf = (vx: number, vz: number, s: ReturnType<Track['sampleAt']>) =>
-            Math.sign((vx - s.pos.x) * s.nor.x + (vz - s.pos.z) * s.nor.z) || 1
-          const e = track.sampleAt(Math.floor(def.entryT * track.N))
-          const x = track.sampleAt(Math.floor(def.exitT * track.N))
-          const eSide = sideOf(def.via[0][0], def.via[0][1], e)
-          const xSide = sideOf(def.via[def.via.length - 1][0], def.via[def.via.length - 1][1], x)
-          const pts = [
-            new THREE.Vector3(e.pos.x + e.nor.x * eSide * hw * 0.5, 0, e.pos.z + e.nor.z * eSide * hw * 0.5),
-            ...def.via.map(([vx, vz]) => new THREE.Vector3(vx, 0, vz)),
-            new THREE.Vector3(x.pos.x + x.nor.x * xSide * hw * 0.5, 0, x.pos.z + x.nor.z * xSide * hw * 0.5),
-          ]
-          const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.5)
-          const M = 160
-          const samples: THREE.Vector3[] = []
-          for (let k = 0; k <= M; k++) samples.push(curve.getPointAt(k / M))
+          // 진입/탈출은 도로 가장자리에서 시작해 via 경유점을 지나는 흙길 (track.ts와 공유)
+          const { curve, samples } = shortcutCurve(track, def)
+          const M = samples.length - 1
           // 흙길 strip 메시
           const positions: number[] = []
           const indices: number[] = []
@@ -390,8 +391,43 @@ export class GimmickManager {
           geo.setIndex(indices)
           geo.computeVertexNormals()
           this.group.add(new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ color: 0x8a7050 })))
-          // 입구 화살표 마커 (노란 콘 2개)
-          for (const [tt, sgn] of [[def.entryT, eSide], [def.exitT, xSide]] as const) {
+          // 늪 구간: 흙길 위에 머드색 오버레이 — 부스터 없이 밟으면 기어간다
+          let swampSamples: THREE.Vector3[] | null = null
+          if (def.swamp) {
+            const k0 = Math.max(0, Math.round(def.swamp[0] * M))
+            const k1 = Math.min(M, Math.round(def.swamp[1] * M))
+            swampSamples = samples.slice(k0, k1 + 1)
+            const sPos: number[] = []
+            const sIdx: number[] = []
+            for (let k = k0; k <= k1; k++) {
+              const tan = curve.getTangentAt(k / M)
+              const nx = tan.z, nz = -tan.x
+              const p = samples[k]
+              sPos.push(p.x - nx * w, p.y + 0.045, p.z - nz * w)
+              sPos.push(p.x + nx * w, p.y + 0.045, p.z + nz * w)
+              if (k < k1) {
+                const a = (k - k0) * 2
+                sIdx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3)
+              }
+            }
+            const sGeo = new THREE.BufferGeometry()
+            sGeo.setAttribute('position', new THREE.Float32BufferAttribute(sPos, 3))
+            sGeo.setIndex(sIdx)
+            sGeo.computeVertexNormals()
+            this.group.add(new THREE.Mesh(
+              sGeo,
+              new THREE.MeshLambertMaterial({ color: 0x6b4a26, transparent: true, opacity: 0.9 }),
+            ))
+          }
+          // 입구 화살표 마커 (노란 콘 2개) — 코리도 끝점의 도로 대비 방향으로 side 판정
+          const sideAt = (tt: number, vp: THREE.Vector3) => {
+            const s = track.sampleAt(Math.floor(tt * track.N))
+            return (Math.sign((vp.x - s.pos.x) * s.nor.x + (vp.z - s.pos.z) * s.nor.z) || 1) as 1 | -1
+          }
+          for (const [tt, sgn] of [
+            [def.entryT, sideAt(def.entryT, samples[3])],
+            [def.exitT, sideAt(def.exitT, samples[samples.length - 4])],
+          ] as const) {
             const s2 = track.sampleAt(Math.floor(tt * track.N))
             const cone = new THREE.Mesh(
               new THREE.ConeGeometry(0.5, 1.4, 6),
@@ -404,7 +440,7 @@ export class GimmickManager {
             cone.rotation.z = Math.PI // 아래를 가리키는 화살표
             this.group.add(cone)
           }
-          this.shortcuts.push({ def, samples })
+          this.shortcuts.push({ def, samples, swampSamples })
           break
         }
         case 'cannon': {
@@ -459,12 +495,16 @@ export class GimmickManager {
       }
     })
 
-    // 지름길 = 보조 도로 (kart.step에서 오프로드/벽/역주행 면제)
+    // 지름길 3단계 존 — kart.step이 해석
+    //  코리도(drivable): 오프로드/벽/역주행 면제
+    //  소프트 갓길: 살짝 벗어남 → 감속하되 벽 클램프 금지(뒤처진 trackIdx로 순간이동하던 버그 방지)
+    //  낙하 밴드: 크게 벗어남 → 도로 밖이면 바닥이 꺼져 구름이가 복귀
     if (this.shortcuts.length) {
-      track.auxRoadFn = (pos) =>
-        this.shortcuts.some((sc) =>
-          nearPolyline(pos.x, pos.z, sc.samples, sc.def.width / 2 + 0.9),
-        )
+      const within = (pos: THREE.Vector3, extra: number) =>
+        this.shortcuts.some((sc) => nearPolyline(pos.x, pos.z, sc.samples, sc.def.width / 2 + extra))
+      track.auxRoadFn = (pos) => within(pos, 0.9)
+      track.auxSoftFn = (pos) => within(pos, 4.5)
+      track.auxFallFn = (pos) => within(pos, 16) && !within(pos, 4.5)
     }
 
     // 가라앉은 다리 = 동적 pit (kart.step의 isPit → 기존 낙하/구조대 흐름 재사용)
@@ -579,12 +619,23 @@ export class GimmickManager {
     const lat = tr.lateral(kart.pos, kart.trackIdx)
     const onRoad = Math.abs(lat) < tr.halfWidth
 
-    // E 머드: 노면 감속 (부스터 중에는 절반만)
+    // E 머드: 노면 감속 (부스터 중에는 절반만) — 부분 폭이면 lo..hi 안에서만
     for (const m of this.mud) {
-      if (!inSplineRange(tFrac, m.t0, m.t1) || !onRoad || kart.y > 0.2) continue
-      if (m.side && Math.sign(lat) !== m.side) continue
+      if (!inSplineRange(tFrac, m.def.t0, m.def.t1) || !onRoad || kart.y > 0.2) continue
+      const latF = lat / tr.halfWidth
+      if (latF < m.lo || latF > m.hi) continue
       const boosting = kart.boostT > 0 || kart.boosterT > 0
       if (kart.speed > 11) kart.speed *= Math.exp(-(boosting ? 1.1 : 2.4) * dt)
+    }
+
+    // E 늪 숏컷: 부스터 없이 밟으면 기어간다 (부스터/부스트 중엔 완전 면역 — 게이지를 채워야 경제적)
+    if (kart.y < 0.2 && kart.boostT <= 0 && kart.boosterT <= 0) {
+      for (const sc of this.shortcuts) {
+        if (!sc.swampSamples) continue
+        if (kart.speed <= 12) continue
+        if (!nearPolyline(kart.pos.x, kart.pos.z, sc.swampSamples, sc.def.width / 2 + 0.9)) continue
+        kart.speed *= Math.exp(-2.6 * dt)
+      }
     }
 
     // E 컨베이어/급류: 트랙 접선 방향으로 민다

@@ -3,7 +3,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { Track, rng } from './track'
 import type { CharacterDef } from './roster'
 import { ADS, makeAdBoard } from './ads'
-import { preset } from './perf'
+import { preset, getQuality } from './perf'
 
 // Kart bodies (poly.pizza, see public/models/karts/CREDITS.md) + Kenney kits
 const MODEL_NAMES = [
@@ -486,6 +486,27 @@ export function buildDecorations(track: Track, assets: Assets): THREE.Group {
 
   const wall = track.wallDist
 
+  // 숏컷 코리도 폴리라인 — 수목/바위가 지름길을 가리지 않게 (전 코스 공용)
+  const scLines: { x: number; z: number }[] = []
+  for (const g of track.course.gimmicks ?? []) {
+    if (g.type !== 'shortcut') continue
+    const pts = [
+      track.worldAt(g.entryT, 0),
+      ...g.via.map(([vx, vz]) => new THREE.Vector3(vx, 0, vz)),
+      track.worldAt(g.exitT, 0),
+    ]
+    for (let i = 0; i < pts.length - 1; i++) {
+      for (let f = 0; f <= 1; f += 0.1) {
+        scLines.push({
+          x: pts[i].x + (pts[i + 1].x - pts[i].x) * f,
+          z: pts[i].z + (pts[i + 1].z - pts[i].z) * f,
+        })
+      }
+    }
+  }
+  const nearShortcut = (p: THREE.Vector3, r = 9) =>
+    scLines.some((q) => (p.x - q.x) ** 2 + (p.z - q.z) ** 2 < r * r)
+
   // Trackside ad boards (real ads / Verse8 games — see ads.ts)
   {
     const slots = 5
@@ -504,6 +525,20 @@ export function buildDecorations(track: Track, assets: Assets): THREE.Group {
     }
   }
 
+  // 실측 클리어런스: 스폰된 모델의 실제 XZ 바운딩 반경으로 전 트랙 샘플과 거리 검사.
+  // (추정 반경 size/2는 가로로 넓은 모델에서 도로를 덮었음 — 스위치백 사이 바위/산의 원인)
+  const trackClear = (obj: THREE.Object3D, x: number, z: number, extra = 2): boolean => {
+    const box = new THREE.Box3().setFromObject(obj)
+    const rad = Math.max(box.max.x - box.min.x, box.max.z - box.min.z) / 2
+    const need = hw + extra + rad
+    for (let i = 0; i < N; i += 2) {
+      const s = track.sampleAt(i)
+      const dx = x - s.pos.x, dz = z - s.pos.z
+      if (dx * dx + dz * dz < need * need) return false
+    }
+    return true
+  }
+
   // Generic scatter helper: drop models in a lateral band, avoiding the road.
   const scatter = (
     names: string[],
@@ -513,19 +548,24 @@ export function buildDecorations(track: Track, assets: Assets): THREE.Group {
     latMax: number,
     y = 0,
   ) => {
-    for (let k = 0; k < Math.max(1, Math.round(count * preset().decorScale)); k++) {
+    // 밀도 배수 — 고사양은 더 조밀(폴리↑), 저사양(모바일)은 오히려 줄여 드로우콜↓
+    const q = getQuality()
+    const densFactor = q === 'high' ? 1.5 : q === 'mid' ? 1.05 : 0.72
+    for (let k = 0; k < Math.max(1, Math.round(count * densFactor)); k++) {
       const idx = Math.floor(rand() * N)
       const side = rand() < 0.5 ? 1 : -1
       const lat = side * (latMin + rand() * (latMax - latMin))
       const s = track.sampleAt(idx)
       const p = new THREE.Vector3(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
+      const modelSize = size[0] + rand() * (size[1] - size[0])
+      const radius = modelSize * 0.5
       const nearIdx = track.nearestIndex(p)
-      if (Math.abs(track.lateral(p, nearIdx)) < hw + 3.5) continue // never on the road
-      const obj = assets.spawn(
-        names[Math.floor(rand() * names.length)],
-        size[0] + rand() * (size[1] - size[0]),
-      )
+      if (Math.abs(track.lateral(p, nearIdx)) < hw + 1.5 + radius) continue
+      if (nearShortcut(p, 8 + radius)) continue // 지름길 코리도도 피한다
+      const obj = assets.spawn(names[Math.floor(rand() * names.length)], modelSize)
       if (!obj) continue
+      // 실측 반경으로 최종 검증 — 어느 트랙 구간에도 겹치지 않을 때만 배치 (전 크기)
+      if (!trackClear(obj, p.x, p.z, 2.5)) continue
       obj.position.set(p.x, y, p.z)
       obj.rotation.y = rand() * Math.PI * 2
       group.add(obj)
@@ -617,7 +657,9 @@ export function buildDecorations(track: Track, assets: Assets): THREE.Group {
   }
 
   // Pylons + barriers behind the guardrail on the outside of sharp corners
+  // — 스폰 그리드/출발선 근처(t>0.93, t<0.02)는 제외 (급커브여도 출발 구역에 장애물 금지)
   for (let i = 0; i < N; i += 10) {
+    if (i > N * 0.93 || i < N * 0.02) continue
     const s0 = track.sampleAt(i)
     const s1 = track.sampleAt(i + 10)
     const turn = s0.tan.angleTo(s1.tan)
@@ -633,7 +675,8 @@ export function buildDecorations(track: Track, assets: Assets): THREE.Group {
         barrier.scale.x *= 3
         group.add(barrier)
       }
-      if (rand() < 0.5) place(assets.spawn('pylon', 0.8), i + 3, -side * (hw + 1.4))
+      // 파일런은 주행 가능한 갓길이 아니라 가드레일 바깥에
+      if (rand() < 0.5) place(assets.spawn('pylon', 0.8), i + 3, -side * (wall + 0.9))
     }
   }
 
@@ -760,13 +803,22 @@ export function buildDecorations(track: Track, assets: Assets): THREE.Group {
         const idx = Math.floor((k / 4) * N + rand() * 80)
         const side = k % 2 === 0 ? 1 : -1
         const s = track.sampleAt(idx)
-        const lat = side * (wall + 55 + rand() * 35)
-        const p = new THREE.Vector3(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
-        if (Math.abs(track.lateral(p, track.nearestIndex(p))) < hw + 24) continue
         const big = k % 2 === 0
         const h = big ? 46 + rand() * 18 : 26 + rand() * 10
+        const lat = side * (wall + 55 + rand() * 35)
+        const p = new THREE.Vector3(s.pos.x + s.nor.x * lat, 0, s.pos.z + s.nor.z * lat)
         const v = assets.spawn(big ? 'volcano/volcano-a' : 'volcano/volcano-b', h)
         if (!v) continue
+        // 실측 base 반경으로 전 트랙 클리어런스 — 스위치백 어느 구간도 안 덮게 (+시야 여유 6).
+        // 막히면 같은 방향으로 더 바깥으로 밀어 재시도 (원경 화산 유지 — 테마 보존)
+        if (!trackClear(v, p.x, p.z, 6)) {
+          let placed = false
+          for (const extra of [40, 80, 120]) {
+            const q = new THREE.Vector3(s.pos.x + s.nor.x * (lat + Math.sign(lat) * extra), 0, s.pos.z + s.nor.z * (lat + Math.sign(lat) * extra))
+            if (trackClear(v, q.x, q.z, 6)) { p.copy(q); placed = true; break }
+          }
+          if (!placed) continue
+        }
         v.position.set(p.x, 0, p.z)
         v.rotation.y = rand() * Math.PI * 2
         group.add(v)
@@ -914,7 +966,7 @@ export function buildDecorations(track: Track, assets: Assets): THREE.Group {
       // 빽빽한 정글 수목 — 메인도로와 지름길 양쪽을 피해 배치
       const treeNames = ['nature/tree_default', 'nature/tree_detailed', 'nature/tree_oak', 'nature/tree_fat',
         'pirate/palm-detailed-bend', 'pirate/palm-detailed-straight']
-      for (let k = 0; k < Math.round(80 * preset().decorScale); k++) {
+      for (let k = 0; k < Math.round(110 * preset().decorScale); k++) {
         const idx = Math.floor(rand() * N)
         const side = rand() < 0.5 ? 1 : -1
         const lat = side * (wall + 6 + rand() * 50)
@@ -1027,6 +1079,45 @@ export function buildDecorations(track: Track, assets: Assets): THREE.Group {
     }
     default:
       scatter(['treeLarge', 'treeSmall'], [4.5, 7], 50, wall + 4, wall + 50)
+  }
+
+  // 노면가 저폴리 디테일 (자갈/풀 무더기) — 단일 InstancedMesh = 드로우콜 1개.
+  // 폴리곤 밀도를 크게 올리되 성능 부담 없음. 품질 low(모바일)에서는 생략.
+  {
+    const q = preset()
+    const detailCount = Math.round(360 * q.decorScale) // low(0.5)=180, mid=288, high=360
+    if (detailCount > 8) {
+      const theme = track.course.theme
+      // 지면색 계열 뾰족한 저폴리 덩어리 (자갈+풀 겸용, 5면 콘)
+      const geo = new THREE.ConeGeometry(0.5, 0.9, 5)
+      const mat = new THREE.MeshLambertMaterial({
+        color: new THREE.Color(theme.ground).multiplyScalar(0.85),
+        vertexColors: false,
+      })
+      const inst = new THREE.InstancedMesh(geo, mat, detailCount)
+      const d = new THREE.Object3D()
+      let placed = 0
+      for (let k = 0; k < detailCount * 3 && placed < detailCount; k++) {
+        const idx = Math.floor(rand() * N)
+        const side = rand() < 0.5 ? 1 : -1
+        const lat = side * (hw + 1.5 + rand() * 9) // 갓길~근거리 밴드
+        const s = track.sampleAt(idx)
+        const x = s.pos.x + s.nor.x * lat
+        const z = s.pos.z + s.nor.z * lat
+        const ni = track.nearestIndex(new THREE.Vector3(x, 0, z))
+        if (Math.abs(track.lateral(new THREE.Vector3(x, 0, z), ni)) < hw + 1.2) continue // 도로 위 금지
+        if (nearShortcut(new THREE.Vector3(x, 0, z), 6)) continue
+        const sc = 0.5 + rand() * 1.1
+        d.position.set(x, track.groundY(ni, lat) + 0.9 * sc * 0.5 - 0.1, z)
+        d.rotation.set(0, rand() * Math.PI * 2, (rand() - 0.5) * 0.3)
+        d.scale.set(sc, sc * (0.7 + rand() * 0.7), sc)
+        d.updateMatrix()
+        inst.setMatrixAt(placed++, d.matrix)
+      }
+      inst.count = placed
+      inst.castShadow = false
+      if (placed > 0) group.add(inst)
+    }
   }
 
   return group

@@ -22,7 +22,8 @@ export const canyon: CourseDef = {
     { t: 0.52, len: 0.016 },
     { t: 0.86, len: 0.016 },
   ],
-  jumpPads: [{ t: 0.3, len: 0.012 }],
+  // 동쪽 계곡 직선 — 0.3은 코너라 착지가 도로 밖 (부호 있는 착지 스캔으로 0.344 확정)
+  jumpPads: [{ t: 0.344, len: 0.012, lane: 0, w: 0.3 }],
   pits: [
     { t0: 0.42, t1: 0.5, side: -1 },
     { t0: 0.76, t1: 0.84, side: 1 },
@@ -33,10 +34,12 @@ export const canyon: CourseDef = {
     { t: 0.9, lanes: [-0.6, 0, 0.6] },
   ],
   gimmicks: [
+    // 점프대 뒤 머드 (틈은 왼쪽 가장자리)
+    { type: 'mud', t0: 0.356, t1: 0.369, lane: -0.15, w: 0.85 },
     { type: 'rockfall', t: 0.18, lane: -0.3, period: 5, warnSec: 1 },
     { type: 'rockfall', t: 0.62, lane: 0.4, period: 6.5, warnSec: 1 },
-    // 남서 딥을 가로지르는 좁은 협곡길 (절약 43 — 길지만 좁다)
-    { type: 'shortcut', entryT: 0.53, exitT: 0.714, via: [[-95, -102]], width: 5 },
+    // 남서 딥을 가로지르는 좁은 협곡길 — 중간이 늪: 무부스트 +0.7s 손해 / 풀부스터 -3.0s 이득
+    { type: 'shortcut', entryT: 0.53, exitT: 0.714, via: [[-95, -102]], width: 5, swamp: [0.3, 0.75] },
   ],
   decorSeed: 23,
   theme: {

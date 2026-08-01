@@ -16,7 +16,7 @@ export interface AdDef {
 
 export const ADS: AdDef[] = [
   { title: 'VERSE8', subtitle: 'PLAY · CREATE · EARN', bg1: '#1b2350', bg2: '#3a2a8c', fg: '#ffffff' },
-  { title: 'V8 KART RUSH', subtitle: 'BEAT THE #1 GHOST', bg1: '#0f3057', bg2: '#00587a', fg: '#ffe14d' },
+  { title: 'DRIFT RUSH', subtitle: 'BEAT THE #1 GHOST', bg1: '#0f3057', bg2: '#00587a', fg: '#ffe14d' },
   { title: 'VERSE8.IO', subtitle: '1000+ BROWSER GAMES', bg1: '#3d1d63', bg2: '#7a2a8c', fg: '#9fe8ff' },
   { title: 'MADE WITH AI', subtitle: 'CREATE YOURS ON VERSE8', bg1: '#0b3d2e', bg2: '#11705a', fg: '#baffd9' },
   { title: 'YOUR GAME HERE', subtitle: 'ads@verse8.io', bg1: '#26233a', bg2: '#4a4566', fg: '#f2f2f2' },

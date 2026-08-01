@@ -34,6 +34,10 @@ export class Track {
   dynamicPitFn: ((idx: number) => boolean) | null = null
   /** 보조 도로(지름길) 판정 — GimmickManager가 설정. true면 오프로드/벽/역주행 면제 */
   auxRoadFn: ((pos: THREE.Vector3) => boolean) | null = null
+  /** 지름길 소프트 갓길 — 코리도에서 살짝 벗어난 영역. true면 감속(오프로드)하되 벽 클램프는 안 함(순간이동 방지) */
+  auxSoftFn: ((pos: THREE.Vector3) => boolean) | null = null
+  /** 지름길 낙하 밴드 — 코리도를 크게 벗어난 영역. 도로 밖일 때 여기면 바닥이 꺼져 구름이가 복귀 */
+  auxFallFn: ((pos: THREE.Vector3) => boolean) | null = null
   /** 뱅크 기울기 (lat 1당 높이) — 평지/뱅크 없으면 전부 0 */
   bankSlope: Float32Array
   /** 진행방향 경사 (dh/ds) — 내리막이 음수. 평지 코스는 전부 0 */
@@ -226,6 +230,67 @@ export class Track {
   }
 }
 
+// ---------- Shortcut corridor (shared by mesh building + GimmickManager) ----------
+
+export interface ShortcutDef {
+  entryT: number
+  exitT: number
+  via: [number, number][]
+  width: number
+}
+
+/** 숏컷 흙길 중심선 곡선 — 도로 가장자리(hw*0.5)에서 via 경유점을 지나 반대 가장자리로. */
+export function shortcutCurve(track: Track, def: ShortcutDef): {
+  curve: THREE.CatmullRomCurve3
+  samples: THREE.Vector3[]
+} {
+  const hw = track.halfWidth
+  const sideOf = (vx: number, vz: number, s: TrackSample) =>
+    Math.sign((vx - s.pos.x) * s.nor.x + (vz - s.pos.z) * s.nor.z) || 1
+  const e = track.sampleAt(Math.floor(def.entryT * track.N))
+  const x = track.sampleAt(Math.floor(def.exitT * track.N))
+  const eSide = sideOf(def.via[0][0], def.via[0][1], e)
+  const xSide = sideOf(def.via[def.via.length - 1][0], def.via[def.via.length - 1][1], x)
+  const pts = [
+    new THREE.Vector3(e.pos.x + e.nor.x * eSide * hw * 0.5, e.pos.y, e.pos.z + e.nor.z * eSide * hw * 0.5),
+    ...def.via.map(([vx, vz]) => new THREE.Vector3(vx, 0, vz)),
+    new THREE.Vector3(x.pos.x + x.nor.x * xSide * hw * 0.5, x.pos.y, x.pos.z + x.nor.z * xSide * hw * 0.5),
+  ]
+  const curve = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.5)
+  const M = 160
+  const samples: THREE.Vector3[] = []
+  for (let k = 0; k <= M; k++) samples.push(curve.getPointAt(k / M))
+  return { curve, samples }
+}
+
+/**
+ * 숏컷이 가드레일과 겹치는 (idx, side) 집합 — 코리도가 벽선(wallDist)에 닿는 곳을
+ * 실제 기하로 계산해 레일에 정확한 틈을 낸다. (entryT±8 고정폭은 사선 진입에서 조각이 남음)
+ */
+export function shortcutRailGaps(
+  track: Track,
+  def: ShortcutDef,
+): { i: number; side: 1 | -1 }[] {
+  const { samples } = shortcutCurve(track, def)
+  const margin = def.width / 2 + 1.6
+  const gaps: { i: number; side: 1 | -1 }[] = []
+  // 코리도가 도로 가장자리를 벗어난 구간(진입/탈출 후드)만 대상 — 도로 위를 지나는 중간은 제외
+  for (const side of [1, -1] as const) {
+    for (let i = 0; i < track.N; i++) {
+      const s = track.sampleAt(i)
+      const rx = s.pos.x + s.nor.x * side * track.wallDist
+      const rz = s.pos.z + s.nor.z * side * track.wallDist
+      let hit = false
+      for (const p of samples) {
+        const dx = p.x - rx, dz = p.z - rz
+        if (dx * dx + dz * dz < margin * margin) { hit = true; break }
+      }
+      if (hit) gaps.push({ i, side })
+    }
+  }
+  return gaps
+}
+
 // ---------- Mesh building ----------
 
 function makeStrip(
@@ -366,26 +431,35 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
   )
   group.add(road)
 
-  // Curbs (red/white alternating) on both edges
+  // Curbs (red/white alternating) on both edges — 입체 연석: 윗면 + 안/밖 수직면
   const curbA = new THREE.Color(theme.curbA)
   const curbB = new THREE.Color(theme.curbB)
   const curbColor = (i: number) => (Math.floor(i / 7) % 2 === 0 ? curbA : curbB)
-  const curbL = new THREE.Mesh(
-    makeStrip(track, () => hw, () => hw + 1.1, 0.02, curbColor, inGap),
-    new THREE.MeshLambertMaterial({ vertexColors: true }),
+  const CURB_H = 0.07 // 낮게 — 물리는 평면이라 카트가 넘어다녀도 어색하지 않을 높이
+  const curbMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })
+  group.add(
+    new THREE.Mesh(makeStrip(track, () => hw, () => hw + 1.1, CURB_H, curbColor, inGap), curbMat),
+    new THREE.Mesh(makeStrip(track, () => -hw - 1.1, () => -hw, CURB_H, curbColor, inGap), curbMat),
+    new THREE.Mesh(makeWall(track, hw, 0, CURB_H, curbColor, inGap), curbMat),
+    new THREE.Mesh(makeWall(track, hw + 1.1, 0, CURB_H, curbColor, inGap), curbMat),
+    new THREE.Mesh(makeWall(track, -hw, 0, CURB_H, curbColor, inGap), curbMat),
+    new THREE.Mesh(makeWall(track, -hw - 1.1, 0, CURB_H, curbColor, inGap), curbMat),
   )
-  const curbR = new THREE.Mesh(
-    makeStrip(track, () => -hw - 1.1, () => -hw, 0.02, curbColor, inGap),
-    new THREE.MeshLambertMaterial({ vertexColors: true }),
-  )
-  group.add(curbL, curbR)
 
   // Shoulder skirt: the drivable off-road strip between curb and guardrail has
   // no floor of its own — on flat maps the ground plane covers it, but on
   // elevated / sky maps that ground is far below, leaving a see-through gap
   // you can still drive over. Lay a surface from the curb out past the wall.
   if (!course.open) {
-    const shoulderCol = new THREE.Color(theme.ground).lerp(new THREE.Color(theme.road), 0.4)
+    // 잔디/흙길 느낌: 도로색을 섞지 않고 지면색 계열로 얼룩덜룩한 패치를 깐다
+    // (가장자리 = 느려지는 오프로드라는 게 색으로 읽히도록)
+    const gBase = new THREE.Color(theme.ground)
+    const gDark = gBase.clone().multiplyScalar(0.72)
+    const gLight = gBase.clone().multiplyScalar(1.12)
+    const patchRng = rng(course.decorSeed * 7 + 1)
+    const patches: THREE.Color[] = []
+    for (let k = 0; k < 64; k++) patches.push(gDark.clone().lerp(gLight, patchRng()))
+    const shoulderColor = (i: number) => patches[Math.floor(i / 5) % patches.length]
     const skirtMat = new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide })
     const skirtOuter = track.wallDist + 3
     const hidden = (i: number) =>
@@ -393,8 +467,8 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
     const skL = (i: number) => track.pitAtIndex(i, 1) || hidden(i)
     const skR = (i: number) => track.pitAtIndex(i, -1) || hidden(i)
     group.add(
-      new THREE.Mesh(makeStrip(track, () => hw + 1.1, () => skirtOuter, 0.005, () => shoulderCol, skL), skirtMat),
-      new THREE.Mesh(makeStrip(track, () => -skirtOuter, () => -hw - 1.1, 0.005, () => shoulderCol, skR), skirtMat),
+      new THREE.Mesh(makeStrip(track, () => hw + 1.1, () => skirtOuter, 0.005, shoulderColor, skL), skirtMat),
+      new THREE.Mesh(makeStrip(track, () => -skirtOuter, () => -hw - 1.1, 0.005, shoulderColor, skR), skirtMat),
     )
   }
 
@@ -424,23 +498,14 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
       vertexColors: true,
       side: THREE.DoubleSide,
     })
-    // 지름길 진입/탈출 지점은 가드레일에 틈을 낸다
-    const scGaps: { i0: number; i1: number; side: 1 | -1 }[] = []
+    // 지름길이 가드레일을 가로지르는 곳에 틈을 낸다 — 코리도 실제 기하로 계산
+    const scGapSet = new Set<string>()
     for (const g of course.gimmicks ?? []) {
       if (g.type !== 'shortcut') continue
-      const ends: [number, [number, number]][] = [
-        [g.entryT, g.via[0]],
-        [g.exitT, g.via[g.via.length - 1]],
-      ]
-      for (const [t, [vx, vz]] of ends) {
-        const idx = Math.floor(t * track.N)
-        const s = track.sampleAt(idx)
-        const side = (Math.sign((vx - s.pos.x) * s.nor.x + (vz - s.pos.z) * s.nor.z) || 1) as 1 | -1
-        scGaps.push({ i0: idx - 8, i1: idx + 8, side })
-      }
+      for (const { i, side } of shortcutRailGaps(track, g)) scGapSet.add(`${side}:${i}`)
     }
     const scGapAt = (i: number, side: 1 | -1) =>
-      scGaps.some((gp) => gp.side === side && i >= gp.i0 && i <= gp.i1)
+      scGapSet.has(`${side}:${((i % track.N) + track.N) % track.N}`)
     const hiddenLeg = (i: number) =>
       !!course.p2pFinishT && i >= Math.floor(course.p2pFinishT * track.N) + 55 && i <= track.N - 5
     const skipL = (i: number) => track.pitAtIndex(i, 1) || scGapAt(i, 1) || hiddenLeg(i)
@@ -455,6 +520,35 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
       new THREE.Mesh(makeWall(track, track.wallDist, 0.95, 1.05, capColor, skipL), capMat),
       new THREE.Mesh(makeWall(track, -track.wallDist, 0.95, 1.05, capColor, skipR), capMat),
     )
+
+    // 가드레일 지지 기둥 — 벽이 종잇장처럼 보이지 않게 (인스턴싱 1 드로우콜)
+    {
+      const step = 10
+      const spots: { i: number; side: 1 | -1 }[] = []
+      for (let i = 0; i < track.N; i += step) {
+        if (!skipL(i)) spots.push({ i, side: 1 })
+        if (!skipR(i)) spots.push({ i, side: -1 })
+      }
+      const postGeo = new THREE.BoxGeometry(0.26, 1.12, 0.26)
+      const postMat = new THREE.MeshLambertMaterial({
+        color: new THREE.Color(theme.rail).multiplyScalar(0.55),
+      })
+      const posts = new THREE.InstancedMesh(postGeo, postMat, spots.length)
+      const d = new THREE.Object3D()
+      spots.forEach(({ i, side }, k) => {
+        const s = track.sampleAt(i)
+        const lat = side * (track.wallDist + 0.16)
+        d.position.set(
+          s.pos.x + s.nor.x * lat,
+          track.groundY(i, lat) + 0.56,
+          s.pos.z + s.nor.z * lat,
+        )
+        d.rotation.y = Math.atan2(s.tan.x, s.tan.z)
+        d.updateMatrix()
+        posts.setMatrixAt(k, d.matrix)
+      })
+      group.add(posts)
+    }
 
     // cliff sections: dark drop face + canyon floor far below
     if (course.pits.length > 0) {
@@ -493,7 +587,9 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
   for (const pad of course.jumpPads) {
     const i0 = Math.floor(pad.t * track.N)
     const i1 = Math.floor((pad.t + pad.len) * track.N)
-    const w = hw * 0.8
+    // 부분 폭 점프대 — 좁게 두면 자리 싸움이 생긴다
+    const latLo = ((pad.lane ?? 0) - (pad.w ?? 0.8)) * hw
+    const latHi = ((pad.lane ?? 0) + (pad.w ?? 0.8)) * hw
     const positions: number[] = []
     const colors: number[] = []
     const indices: number[] = []
@@ -503,8 +599,8 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
       const s = track.sampleAt(i)
       const k = (i - i0) / Math.max(1, i1 - i0)
       const y = k * 1.15 // rises to launch height
-      positions.push(s.pos.x - s.nor.x * w, track.groundY(i, -w) + y, s.pos.z - s.nor.z * w)
-      positions.push(s.pos.x + s.nor.x * w, track.groundY(i, w) + y, s.pos.z + s.nor.z * w)
+      positions.push(s.pos.x + s.nor.x * latLo, track.groundY(i, latLo) + y, s.pos.z + s.nor.z * latLo)
+      positions.push(s.pos.x + s.nor.x * latHi, track.groundY(i, latHi) + y, s.pos.z + s.nor.z * latHi)
       const c = Math.floor((i - i0) / 4) % 2 === 0 ? colA : colB
       colors.push(c.r, c.g, c.b, c.r, c.g, c.b)
       if (i < i1) {
@@ -516,8 +612,8 @@ export function buildTrackMeshes(track: Track): TrackMeshes {
     {
       const s = track.sampleAt(i1)
       const base = positions.length / 3
-      positions.push(s.pos.x - s.nor.x * w, 0, s.pos.z - s.nor.z * w)
-      positions.push(s.pos.x + s.nor.x * w, 0, s.pos.z + s.nor.z * w)
+      positions.push(s.pos.x + s.nor.x * latLo, track.groundY(i1, latLo), s.pos.z + s.nor.z * latLo)
+      positions.push(s.pos.x + s.nor.x * latHi, track.groundY(i1, latHi), s.pos.z + s.nor.z * latHi)
       colors.push(colB.r, colB.g, colB.b, colB.r, colB.g, colB.b)
       const topA = (i1 - i0) * 2
       indices.push(topA, base, topA + 1, topA + 1, base, base + 1)

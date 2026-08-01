@@ -5,7 +5,9 @@ import { Track } from './game/track'
 import { Assets, SCENERY_MODELS } from './game/assets'
 import { Game, type HudSnapshot, type GhostData, type Placement } from './game/Game'
 import { Hud } from './ui/Hud'
+import { TouchControls } from './ui/TouchControls'
 import { ComboPreview } from './ui/ComboPreview'
+import { isTouch } from './game/env'
 import { net, type NetStatus, type RoomSnapshot, type LeaderboardEntry } from './net/net'
 import { audio } from './game/audio'
 import { fmtTime } from './util'
@@ -16,6 +18,7 @@ type Screen =
   | { name: 'title' }
   | { name: 'settings' }
   | { name: 'select'; mode: 'time' | 'multi' }
+  | { name: 'rooms' }
   | { name: 'lobby'; courseId: string; roomId: string }
   | {
       name: 'game'
@@ -27,6 +30,7 @@ type Screen =
       ghost?: GhostData | null
       aiCount?: number
       teamRace?: boolean
+      teamSize?: number
     }
   | {
       name: 'results'
@@ -38,7 +42,10 @@ type Screen =
       raceId?: number
       placements?: Placement[]
       ghost?: GhostData
+      aiCount?: number
+      playerDnf?: boolean
       teamRace?: boolean
+      teamSize?: number
       teamScores?: { blue: number; red: number }
     }
 
@@ -70,7 +77,7 @@ export default function App() {
   if (!ready)
     return (
       <div className="screen center-col">
-        <h1 className="logo">V8 KART RUSH</h1>
+        <h1 className="logo">DRIFT RUSH</h1>
         <p className="dim">{t('loading')}</p>
       </div>
     )
@@ -82,6 +89,8 @@ export default function App() {
       return <SettingsScreen onClose={() => setScreen({ name: 'title' })} />
     case 'select':
       return <SelectScreen mode={screen.mode} netStatus={netStatus} go={setScreen} />
+    case 'rooms':
+      return <RoomsScreen go={setScreen} />
     case 'lobby':
       return <LobbyScreen courseId={screen.courseId} roomId={screen.roomId} go={setScreen} />
     case 'game':
@@ -108,7 +117,7 @@ function TitleScreen({ netStatus, go }: { netStatus: NetStatus; go: (s: Screen) 
   return (
     <div className="screen center-col title-screen">
       <h1 className="logo">
-        V8 KART <span className="logo-accent">RUSH</span>
+        DRIFT <span className="logo-accent">RUSH</span>
       </h1>
       <p className="tagline">{t('tagline')}</p>
 
@@ -182,7 +191,7 @@ function TitleScreen({ netStatus, go }: { netStatus: NetStatus; go: (s: Screen) 
           onClick={() => {
             saveProfile()
             audio.resume()
-            go({ name: 'select', mode: 'multi' })
+            go({ name: 'rooms' })
           }}
         >
           {t('multiPlay')}
@@ -276,7 +285,9 @@ function SelectScreen({
   const [boards, setBoards] = useState<Record<string, LeaderboardEntry[]>>({})
   const [roomCode, setRoomCode] = useState('')
   const [joining, setJoining] = useState<string | null>(null)
-  const [raceMode, setRaceMode] = useState<'speed' | 'item' | 'team'>('speed')
+  // 싱글 모드: 랩타임 도전(1:1 고스트) / 아이템전 / 스피드전 — 아이템·스피드는 개인전(8인) 또는 팀전(2:2~4:4)
+  const [raceMode, setRaceMode] = useState<'lap' | 'item' | 'speed'>('lap')
+  const [variant, setVariant] = useState<'solo' | 2 | 3 | 4>('solo')
 
   useEffect(() => {
     let alive = true
@@ -294,17 +305,17 @@ function SelectScreen({
 
   const pick = async (courseId: string) => {
     if (mode === 'time') {
-      if (raceMode === 'item') {
-        // single item race vs CPU karts
-        go({ name: 'game', mode: 'time', raceMode: 'item', courseId, aiCount: 3 })
-      } else if (raceMode === 'team') {
-        // 4:4 team speed race (drift practice)
-        go({ name: 'game', mode: 'time', raceMode: 'speed', teamRace: true, courseId })
-      } else {
-        // speed race: fetch the #1 ghost to race against
+      if (raceMode === 'lap') {
+        // 랩타임 도전: 1위 고스트와 1:1
         setJoining(courseId)
         const ghost = await net.getTopGhost(courseId)
         go({ name: 'game', mode: 'time', raceMode: 'speed', courseId, ghost })
+      } else if (variant === 'solo') {
+        // 개인전 — 나 + AI 7 = 8인
+        go({ name: 'game', mode: 'time', raceMode, courseId, aiCount: 7 })
+      } else {
+        // 팀전 n:n — 순위 포인트제 (1위 8점 … 8위 1점)
+        go({ name: 'game', mode: 'time', raceMode, courseId, teamRace: true, teamSize: variant })
       }
       return
     }
@@ -335,29 +346,54 @@ function SelectScreen({
             maxLength={12}
             onChange={(e) => setRoomCode(e.target.value)}
           />
-        ) : (
-          <div className="row gap">
+        ) : null}
+      </header>
+
+      {mode === 'time' && (
+        <>
+          <div className="mode-row">
+            <span className="mode-label">{t('modePick')}</span>
             <button
-              className={`btn small ${raceMode === 'speed' ? 'on' : ''}`}
-              onClick={() => setRaceMode('speed')}
+              className={`btn mode-btn ${raceMode === 'lap' ? 'on' : ''}`}
+              onClick={() => setRaceMode('lap')}
             >
-              {t('speedToggle')} <small>{t('speedToggleSub')}</small>
+              {t('lapToggle')} <small>{t('lapToggleSub')}</small>
             </button>
             <button
-              className={`btn small ${raceMode === 'team' ? 'on' : ''}`}
-              onClick={() => setRaceMode('team')}
-            >
-              {t('teamToggle')} <small>{t('teamToggleSub')}</small>
-            </button>
-            <button
-              className={`btn small ${raceMode === 'item' ? 'on' : ''}`}
+              className={`btn mode-btn ${raceMode === 'item' ? 'on' : ''}`}
               onClick={() => setRaceMode('item')}
             >
               {t('itemToggle')} <small>{t('itemToggleSub')}</small>
             </button>
+            <button
+              className={`btn mode-btn ${raceMode === 'speed' ? 'on' : ''}`}
+              onClick={() => setRaceMode('speed')}
+            >
+              {t('speedToggle')} <small>{t('speedToggleSub')}</small>
+            </button>
           </div>
-        )}
-      </header>
+          {raceMode !== 'lap' && (
+            <div className="mode-row variant-row">
+              <span className="mode-label">{t('variantPick')}</span>
+              <button
+                className={`btn mode-btn slim ${variant === 'solo' ? 'on' : ''}`}
+                onClick={() => setVariant('solo')}
+              >
+                {t('variantSolo')} <small>{t('variantSoloSub')}</small>
+              </button>
+              {([2, 3, 4] as const).map((n) => (
+                <button
+                  key={n}
+                  className={`btn mode-btn slim ${variant === n ? 'on' : ''}`}
+                  onClick={() => setVariant(n)}
+                >
+                  {t('variantTeam')} {n}:{n} <small>{t('variantTeamSub')}</small>
+                </button>
+              ))}
+            </div>
+          )}
+        </>
+      )}
 
       <div className="courses">
         {COURSES.map((c) => (
@@ -390,6 +426,182 @@ function SelectScreen({
   )
 }
 
+// ---------- Room browser (JetFall-style) ----------
+
+function RoomsScreen({ go }: { go: (s: Screen) => void }) {
+  const { t, lang } = useI18n()
+  const [rooms, setRooms] = useState<import('./net/net').RoomListing[] | null>(null)
+  const [busy, setBusy] = useState<string | null>(null) // room key being joined, or 'quick'/'create'
+  const [showCreate, setShowCreate] = useState(false)
+  const [cMode, setCMode] = useState<'item' | 'speed'>('item')
+  const [cCourse, setCCourse] = useState(COURSES[0].id)
+  const [cPass, setCPass] = useState('')
+
+  // poll the room list every 3s
+  useEffect(() => {
+    let alive = true
+    const load = async () => {
+      const list = await net.listRooms()
+      if (alive) setRooms(list)
+    }
+    load()
+    const id = setInterval(load, 3000)
+    return () => {
+      alive = false
+      clearInterval(id)
+    }
+  }, [])
+
+  const enterLobby = (snap: RoomSnapshot) => {
+    const roomId = snap.meta?.key || snap.roomId
+    go({ name: 'lobby', courseId: snap.courseId, roomId })
+  }
+
+  const doQuick = async () => {
+    setBusy('quick')
+    try {
+      enterLobby(await net.quickJoin())
+    } catch (e) {
+      console.error(e)
+      alert(t('joinFailed'))
+      setBusy(null)
+    }
+  }
+
+  const doJoin = async (r: import('./net/net').RoomListing) => {
+    if (r.started || r.count >= r.cap) return
+    let pass = ''
+    if (r.locked) {
+      pass = window.prompt(t('passPrompt')) ?? ''
+      if (pass === '') return
+    }
+    setBusy(r.key)
+    try {
+      enterLobby(await net.joinRoom(r.key, pass))
+    } catch (e: any) {
+      console.error(e)
+      alert(/password/i.test(String(e?.message)) ? t('wrongPass') : t('joinFailed'))
+      setBusy(null)
+    }
+  }
+
+  const doCreate = async () => {
+    setBusy('create')
+    try {
+      enterLobby(
+        await net.createRoom({ mode: cMode, courseId: cCourse, variant: 'ffa', pass: cPass.trim() }),
+      )
+    } catch (e) {
+      console.error(e)
+      alert(t('joinFailed'))
+      setBusy(null)
+    }
+  }
+
+  const courseName = (id: string) => {
+    const c = getCourse(id)
+    return lang === 'ko' ? c.nameKo : c.name
+  }
+
+  return (
+    <div className="screen center-col rooms-screen">
+      <header className="row spread rooms-head">
+        <button className="btn small" onClick={() => go({ name: 'title' })}>{t('back')}</button>
+        <h2>{t('roomsTitle')}</h2>
+        <button className="btn small" disabled={busy !== null} onClick={() => net.listRooms().then(setRooms)}>
+          {t('refreshRooms')}
+        </button>
+      </header>
+
+      <div className="row gap rooms-actions">
+        <button className="btn big primary" disabled={busy !== null} onClick={doQuick}>
+          {busy === 'quick' ? t('preparing') : t('quickJoin')}
+          <small>{t('quickJoinSub')}</small>
+        </button>
+        <button className="btn big" disabled={busy !== null} onClick={() => setShowCreate((v) => !v)}>
+          {t('createRoomBtn')}
+        </button>
+      </div>
+
+      {showCreate && (
+        <div className="card create-panel">
+          <h3>{t('createPanelTitle')}</h3>
+          <div className="crow">
+            <span className="clabel">{t('createMode')}</span>
+            <button className={`btn slim ${cMode === 'item' ? 'on' : ''}`} onClick={() => setCMode('item')}>
+              {t('modeItem')}
+            </button>
+            <button className={`btn slim ${cMode === 'speed' ? 'on' : ''}`} onClick={() => setCMode('speed')}>
+              {t('modeSpeed')}
+            </button>
+          </div>
+          <div className="crow">
+            <span className="clabel">{t('createCourse')}</span>
+            <div className="course-chips">
+              {COURSES.map((c) => (
+                <button
+                  key={c.id}
+                  className={`btn slim ${cCourse === c.id ? 'on' : ''}`}
+                  onClick={() => setCCourse(c.id)}
+                >
+                  {courseName(c.id)}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="crow">
+            <span className="clabel">{t('createPass')}</span>
+            <input
+              className="room-code"
+              type="text"
+              value={cPass}
+              maxLength={20}
+              placeholder="—"
+              onChange={(e) => setCPass(e.target.value)}
+            />
+          </div>
+          <div className="row gap">
+            <button className="btn" onClick={() => setShowCreate(false)}>{t('cancel')}</button>
+            <button className="btn primary" disabled={busy !== null} onClick={doCreate}>
+              {busy === 'create' ? t('preparing') : t('createConfirm')}
+            </button>
+          </div>
+        </div>
+      )}
+
+      <div className="card room-list-card">
+        {rooms === null && <p className="dim">{t('loadingRooms')}</p>}
+        {rooms !== null && rooms.length === 0 && <p className="dim">{t('noRooms')}</p>}
+        {rooms?.map((r) => {
+          const full = r.count >= r.cap
+          const joinable = !r.started && !full
+          return (
+            <button
+              key={r.key}
+              className={`room-row ${joinable ? '' : 'disabled'}`}
+              disabled={busy !== null || !joinable}
+              onClick={() => doJoin(r)}
+            >
+              <span className="room-mode">{r.mode === 'speed' ? '⚡' : '🎁'}</span>
+              <span className="room-main">
+                <b>{r.hostNick}</b>
+                <small>{courseName(r.courseId)} · {r.mode === 'speed' ? t('modeSpeed') : t('modeItem')}</small>
+              </span>
+              {r.locked && <span className="room-tag lock">{t('roomLocked')}</span>}
+              <span className={`room-tag ${r.started ? 'playing' : 'waiting'}`}>
+                {r.started ? t('roomPlaying') : t('roomWaiting')}
+              </span>
+              <span className={`room-count ${full ? 'full' : ''}`}>
+                {full ? t('roomFull') : `${r.count}/${r.cap}`}
+              </span>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 // ---------- Lobby ----------
 
 function LobbyScreen({
@@ -408,9 +620,15 @@ function LobbyScreen({
   const startedRef = useRef(false)
   const course = getCourse(courseId)
 
+  const metaInitRef = useRef(false)
   useEffect(() => {
     const unsub = net.onRoomState((s) => {
       setSnap(s)
+      // adopt the room's configured mode once (host created it with item/speed)
+      if (!metaInitRef.current && s.meta) {
+        metaInitRef.current = true
+        setRaceMode(s.meta.mode)
+      }
       if (s.phase === 'racing' && s.startAt > net.serverNow() - 5000 && !startedRef.current) {
         startedRef.current = true
         go({
@@ -429,7 +647,7 @@ function LobbyScreen({
 
   const leave = async () => {
     await net.leaveRoom()
-    go({ name: 'select', mode: 'multi' })
+    go({ name: 'rooms' })
   }
 
   const isHost = snap?.host === net.account
@@ -495,9 +713,10 @@ function LobbyScreen({
             <button
               className="btn primary"
               disabled={racing}
-              onClick={() =>
+              onClick={() => {
+                net.setRoomStarted(true) // room list shows 게임중, quick-join skips it
                 net.startRace(courseId, raceMode)?.catch((e) => alert(String(e?.message ?? e)))
-              }
+              }}
             >
               {t('startRace')}
             </button>
@@ -547,6 +766,7 @@ function GameScreen({
         mode: screen.mode,
         raceMode: screen.raceMode,
         teamRace: screen.teamRace,
+        teamSize: screen.teamSize,
         startAt: screen.startAt,
         ghost: screen.ghost,
         aiCount: screen.aiCount,
@@ -568,7 +788,10 @@ function GameScreen({
               raceId: screen.raceId,
               placements: extra.placements,
               ghost: extra.ghost,
+              aiCount: screen.aiCount,
+              playerDnf: extra.playerDnf,
               teamRace: screen.teamRace,
+              teamSize: screen.teamSize,
               teamScores: extra.teamScores,
             })
           }, 1800)
@@ -601,6 +824,7 @@ function GameScreen({
     <div className="game-wrap">
       <canvas ref={canvasRef} className="game-canvas" />
       <Hud snap={snap} outline={outline} mode={screen.mode} raceMode={screen.raceMode} />
+      {isTouch && <TouchControls gameRef={gameRef} raceMode={screen.raceMode} snap={snap} />}
       <button
         className="btn small hud-quit"
         onClick={async () => {
@@ -641,8 +865,10 @@ function ResultsScreen({
   const [roomSnap, setRoomSnap] = useState<RoomSnapshot | null>(null)
   const submittedRef = useRef(false)
 
-  // AI races (item / team): placements only, never submitted to the leaderboard
-  const isAiRace = screen.mode === 'time' && (screen.raceMode === 'item' || screen.teamRace)
+  // AI 동반 레이스(아이템/팀/스피드 개인전): 순위만 표시, 리더보드 미제출 (랩타임 도전만 기록 등록)
+  const isAiRace =
+    screen.mode === 'time' &&
+    (screen.raceMode === 'item' || !!screen.teamRace || (screen.aiCount ?? 0) > 0)
 
   useEffect(() => {
     if (isAiRace) return
@@ -685,9 +911,13 @@ function ResultsScreen({
     <div className="screen center-col">
       <h2>{t('results')} — {lang === 'ko' ? course.nameKo : course.name}</h2>
       <div className="card result-card">
-        <p className="big-time">{fmtTime(screen.totalMs)}</p>
+        {screen.playerDnf ? (
+          <p className="big-time dnf-big">{t('retired')}</p>
+        ) : (
+          <p className="big-time">{fmtTime(screen.totalMs)}</p>
+        )}
         <p className="dim">{t('bestLap')} {fmtTime(screen.bestLapMs)}</p>
-        {isAiRace && screen.placements && (
+        {isAiRace && screen.placements && !screen.playerDnf && (
           <p className="accent">
             {t('placeOf', {
               r: screen.placements.findIndex((p) => p.isPlayer) + 1,
@@ -695,6 +925,7 @@ function ResultsScreen({
             })}
           </p>
         )}
+        {screen.playerDnf && <p className="accent dnf-big">{t('retiredMsg')}</p>}
         {screen.teamRace && screen.teamScores && (
           <div className="team-result">
             <p className="team-banner">
@@ -728,15 +959,18 @@ function ResultsScreen({
           <h3>{t('raceResults')}</h3>
           <ol>
             {(screen.placements ?? []).map((p, i) => (
-              <li key={i} className={p.isPlayer ? 'me' : ''}>
-                <span className="rank">{i + 1}</span>
+              <li key={i} className={`${p.isPlayer ? 'me' : ''} ${p.totalMs === null ? 'dnf' : ''}`}>
+                <span className="rank">{p.totalMs === null ? '-' : i + 1}</span>
                 <span
                   className="color-dot small"
                   style={{ background: p.team ? (p.team === 'blue' ? '#3a8dff' : '#ff4d3d') : getKart(p.color).ui }}
                 />
                 {p.name}
                 {p.isPlayer && <> {t('me')}</>}
-                <span className="t">{p.totalMs !== null ? fmtTime(p.totalMs) : t('stillRacing')}</span>
+                {screen.teamRace && p.points !== undefined && (
+                  <span className="pts">{p.points}{t('ptsSuffix')}</span>
+                )}
+                <span className="t">{p.totalMs !== null ? fmtTime(p.totalMs) : t('retired')}</span>
               </li>
             ))}
           </ol>
@@ -788,9 +1022,9 @@ function ResultsScreen({
               className="btn primary"
               onClick={async () => {
                 if (screen.teamRace) {
-                  go({ name: 'game', mode: 'time', raceMode: 'speed', teamRace: true, courseId: screen.courseId })
+                  go({ name: 'game', mode: 'time', raceMode: screen.raceMode, teamRace: true, teamSize: screen.teamSize, courseId: screen.courseId })
                 } else if (isAiRace) {
-                  go({ name: 'game', mode: 'time', raceMode: 'item', courseId: screen.courseId, aiCount: 3 })
+                  go({ name: 'game', mode: 'time', raceMode: screen.raceMode, courseId: screen.courseId, aiCount: screen.aiCount ?? 7 })
                 } else {
                   const ghost = await net.getTopGhost(screen.courseId)
                   go({ name: 'game', mode: 'time', raceMode: 'speed', courseId: screen.courseId, ghost })

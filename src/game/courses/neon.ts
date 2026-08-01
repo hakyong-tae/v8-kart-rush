@@ -22,7 +22,8 @@ export const neon: CourseDef = {
     { t: 0.37, len: 0.014 },
     { t: 0.7, len: 0.014 },
   ],
-  jumpPads: [{ t: 0.6, len: 0.012 }],
+  // 0.6은 코너라 착지가 도로 밖 → 0.62 직선으로. 최고난도라 램프도 가장 좁다
+  jumpPads: [{ t: 0.62, len: 0.012, lane: 0, w: 0.28 }],
   pits: [{ t0: 0.26, t1: 0.34, side: -1 }],
   itemRows: [
     { t: 0.18, lanes: [-0.6, 0, 0.6] },
@@ -30,6 +31,8 @@ export const neon: CourseDef = {
     { t: 0.84, lanes: [-0.6, 0, 0.6] },
   ],
   gimmicks: [
+    // 점프대 뒤 오일 슬릭 (틈은 왼쪽 가장자리)
+    { type: 'mud', t0: 0.632, t1: 0.643, lane: -0.15, w: 0.85 },
     { type: 'teleport', t: 0.27, exitT: 0.345 },
     { type: 'spinbar', t: 0.55, period: 4 },
     { type: 'turntable', t: 0.9, lane: 0, radius: 4.5, spin: 0.9 },

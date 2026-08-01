@@ -6,7 +6,7 @@ import { Assets, buildDecorations, makeRider, makeClouds, makeRescuer } from './
 import { Kart, resolveKartCollision } from './kart'
 import { Input } from './input'
 import { ItemManager, rollItem, type ItemType, type ItemActor } from './items'
-import { audio } from './audio'
+import { audio, engineProfileFor } from './audio'
 import { net, type PosMsg, type ItemMsg, type PlayerInfo } from '../net/net'
 import { getLang } from '../i18n'
 import { ADS, makeAdBalloon, AD_LAYER } from './ads'
@@ -38,23 +38,26 @@ export interface GhostData {
 
 export interface Placement {
   name: string
-  totalMs: number | null // null = did not finish before player
+  totalMs: number | null // null = 리타이어(DNF) — 제한시간 내 미완주, 0점
   isPlayer: boolean
   color: string
   team?: Team
+  points?: number // 이 레이서가 얻은 순위 포인트 (완주자만, DNF=0)
 }
 
 export interface FinishExtra {
   placements?: Placement[]
   ghost?: GhostData
   teamScores?: { blue: number; red: number }
+  playerDnf?: boolean // 플레이어가 제한시간 내 미완주
 }
 
 export type MirrorReason = 'missile' | 'overtake' | 'hit'
 
 export type Team = 'blue' | 'red'
 const TEAM_COLORS: Record<Team, number> = { blue: 0x3a8dff, red: 0xff4d3d }
-const RANK_POINTS = [10, 8, 6, 5, 4, 3, 2, 1]
+const RANK_POINTS = [8, 7, 6, 5, 4, 3, 2, 1] // 순위 포인트 (1위 8점 … 8위 1점). 리타이어=0점
+const FINISH_GRACE_MS = 10000 // 1등 도착 후 완주 제한 시간 (초과 시 리타이어)
 
 export interface StandingRow {
   name: string
@@ -66,6 +69,7 @@ export interface StandingRow {
 export interface HudSnapshot {
   phase: GamePhase
   countdown: number
+  finishCountdown: number | null // 1등 도착 후 남은 완주 제한시간(초). null = 미시작
   standings: StandingRow[]
   mirror: { active: boolean; reason: MirrorReason | ''; w: number; h: number; top: number; right: number }
   startCharge: number // 0..1.05 start-boost charge during countdown
@@ -97,8 +101,9 @@ export interface GameOpts {
   courseId: string
   mode: 'time' | 'multi'
   raceMode: 'speed' | 'item'
-  teamRace?: boolean // 4:4 — me + 3 AI (blue) vs 4 AI (red), speed rules
-  aiCount?: number // single item race: number of CPU karts
+  teamRace?: boolean // 팀전 — 나 + AI(블루) vs AI(레드). raceMode가 item이면 아이템 팀전
+  teamSize?: number // 팀 인원 (2/3/4 → 2:2/3:3/4:4). 기본 4
+  aiCount?: number // 개인전 CPU 카트 수 (스피드/아이템 공통)
   ghost?: GhostData | null // single speed race: ghost to race against
   startAt?: number // server-clock ms (multi)
   players?: Record<string, PlayerInfo>
@@ -143,6 +148,7 @@ interface AiActor {
   finishMs: number | null
   baseSpeedStat: number
   startCharge: number
+  nextBoostAt: number // 직선 부스터 다음 사용 가능 시각 (드리프트 게이지 대용)
 }
 
 const PHYS_DT = 1 / 120
@@ -191,6 +197,9 @@ export class Game {
   startCharge = 0
   finalTotalMs = 0
   finalBestLapMs = 0
+  // AI 레이스: 1등 도착 후 이 시각까지 못 들어오면 리타이어(0점). null = 아직 아무도 완주 안 함
+  private firstFinishAt: number | null = null
+  private playerDnf = false
   private itemCounter = 0
   private itemRand = rng(Math.floor(Math.random() * 1e9))
 
@@ -312,6 +321,12 @@ export class Game {
     this.kartGroup = this.kartVis.group
     this.scene.add(this.kartGroup)
 
+    // 카트별 엔진 음색 (무게 클래스/차체 크기)
+    {
+      const kd = getKart(net.color)
+      audio.setEngineProfile(engineProfileFor(kd.weightClass, kd.size, kd.hover))
+    }
+
     this.shieldBubble = new THREE.Mesh(
       new THREE.SphereGeometry(2.0, 16, 12),
       new THREE.MeshBasicMaterial({ color: 0x7df0ff, transparent: true, opacity: 0.22 }),
@@ -347,17 +362,19 @@ export class Game {
     this.rescuer.visible = false
     this.scene.add(this.rescuer)
 
-    // single-player item race: CPU karts. Team race: 4:4, speed rules.
-    if (opts.mode === 'time' && opts.raceMode === 'item') {
-      this.spawnAis(opts.aiCount ?? 3, slot)
-    } else if (opts.mode === 'time' && opts.teamRace) {
-      this.spawnAis(7, slot)
+    // 싱글 팀전(스피드/아이템 공통, n:n) 또는 개인전(CPU 카트) 스폰
+    if (opts.mode === 'time' && opts.teamRace) {
+      const n = Math.min(4, Math.max(2, opts.teamSize ?? 4))
+      this.spawnAis(n * 2 - 1, slot)
       // alternate teams down the grid so neither side owns the front rows
+      // (짝수 인덱스 red = n명, 홀수 blue (n-1)명 + 나 = n:n)
       this.ais.forEach((ai, i) => {
         ai.team = i % 2 === 0 ? 'red' : 'blue'
         this.addTeamRing(ai.group, ai.team)
       })
       this.addTeamRing(this.kartGroup, 'blue')
+    } else if (opts.mode === 'time' && (opts.raceMode === 'item' || (opts.aiCount ?? 0) > 0)) {
+      this.spawnAis(opts.aiCount ?? 3, slot)
     }
 
     // single-player speed race: ghost of the record holder
@@ -435,6 +452,7 @@ export class Game {
         finishMs: null,
         baseSpeedStat: stats.speed,
         startCharge: 0.4 + this.itemRand() * 0.5,
+        nextBoostAt: 5000 + this.itemRand() * 5000, // 첫 부스터는 5~10초 사이
       })
     }
   }
@@ -454,11 +472,14 @@ export class Game {
     group.add(ring)
   }
 
-  /** Live team scores from current race order (KartRider-style rank points). */
-  private teamScores(): { blue: number; red: number } {
+  /**
+   * 팀 점수. final=false(라이브 HUD): 진행도순 잠정 포인트.
+   * final=true(레이스 종료): 완주자만 완주 시간순 포인트, 리타이어=0점.
+   */
+  private teamScores(final = false): { blue: number; red: number } {
     const order = [
       { team: 'blue' as Team, prog: this.kart.progress, fin: this.kart.finished ? this.finalTotalMs : null },
-      ...this.ais.map((a) => ({ team: a.team ?? 'red', prog: a.kart.progress, fin: a.finishMs })),
+      ...this.ais.map((a) => ({ team: a.team ?? 'red', prog: a.kart.progress, fin: a.finished ? a.finishMs : null })),
     ].sort((a, b) => {
       if (a.fin !== null && b.fin !== null) return a.fin - b.fin
       if (a.fin !== null) return -1
@@ -467,6 +488,8 @@ export class Game {
     })
     const score = { blue: 0, red: 0 }
     order.forEach((r, i) => {
+      // 종료 시엔 완주자만 득점 (리타이어 0점)
+      if (final && r.fin === null) return
       score[r.team] += RANK_POINTS[Math.min(i, RANK_POINTS.length - 1)]
     })
     return score
@@ -717,6 +740,25 @@ export class Game {
 
   // ---------- AI ----------
 
+  /** 코스 중심선을 따라가는 자동주행 입력 (완주 후 플레이어 카트용) */
+  private autoInput(k: Kart, laneOffset: number) {
+    const lookahead = 16 + Math.min(10, Math.abs(k.speed) * 0.3)
+    const target = this.track.sampleAt(k.trackIdx + Math.round(lookahead))
+    const lat = laneOffset * this.track.halfWidth * 0.55
+    const tx = target.pos.x + target.nor.x * lat
+    const tz = target.pos.z + target.nor.z * lat
+    let diff = Math.atan2(tx - k.pos.x, tz - k.pos.z) - k.heading
+    while (diff > Math.PI) diff -= Math.PI * 2
+    while (diff < -Math.PI) diff += Math.PI * 2
+    return {
+      throttle: 1,
+      steer: Math.max(-1, Math.min(1, diff * 2.3)),
+      drift: false,
+      useItem: false,
+      reset: false,
+    }
+  }
+
   private updateAiInputs(now: number) {
     for (const ai of this.ais) {
       if (ai.finished) {
@@ -749,10 +791,27 @@ export class Game {
       // shield timer
       if (ai.shieldT > 0) ai.shieldT -= 0.05
 
-      // rubber band: keep the race close
+      // rubber band: keep the race close — 뒤처지면 확 따라붙고, 앞서도 덜 느려짐
       const diffProg = this.kart.progress - k.progress
-      const adj = diffProg > 1.4 ? 7 : diffProg < -1.4 ? -5 : 0
+      const adj = diffProg > 3 ? 14 : diffProg > 1.4 ? 10 : diffProg < -1.4 ? -4 : 0
       k.stats.speed = ai.baseSpeedStat * (1 + adj / 100)
+
+      // 직선 부스터 — 플레이어의 드리프트 부스터에 대응하는 AI 실력 (게이지 충전 대용)
+      if (
+        this.phase === 'racing' &&
+        now - this.goTime > ai.nextBoostAt &&
+        !k.airborne &&
+        k.boostT <= 0 &&
+        k.boosterT <= 0
+      ) {
+        // 앞 24샘플이 직선일 때만 발사 (코너 부스트로 벽박치기 방지)
+        const t0 = this.track.sampleAt(k.trackIdx)
+        const t1 = this.track.sampleAt(k.trackIdx + 24)
+        if (t0.tan.angleTo(t1.tan) < 0.18) {
+          k.applyBoost(1.5 + this.itemRand() * 0.6)
+          ai.nextBoostAt = now - this.goTime + 6000 + this.itemRand() * 4000
+        }
+      }
 
       // item use
       if (ai.slot && now > ai.nextItemAt && this.phase === 'racing') {
@@ -781,8 +840,11 @@ export class Game {
         this.countdownStage = stage
         audio.countdownBeep(stage === 0)
       }
-      // hold throttle to charge the launch boost (max 3s); overcharge blows the engine
-      if (this.input.state.throttle > 0) {
+      // hold throttle to charge the launch boost (max 3s); overcharge blows the engine.
+      // 터치(자동가속)는 안전하게 '굿' 구간까지만 자동 충전 — 엔진폭발 없음.
+      if (this.input.touch.active) {
+        this.startCharge = Math.min(0.6, this.startCharge + dt / 3)
+      } else if (this.input.state.throttle > 0) {
         this.startCharge = Math.min(1.05, this.startCharge + dt / 3)
       } else {
         this.startCharge = Math.max(0, this.startCharge - dt * 0.8)
@@ -815,10 +877,13 @@ export class Game {
     while (this.acc >= PHYS_DT) {
       this.acc -= PHYS_DT
       if (!this.rescue) {
+        // 완주 후 카운트다운 동안엔 자동주행(코스 따라 계속 달림) — 화면이 멈추지 않게
+        const finishedAuto = this.kart.finished && this.phase === 'racing'
+        const inp = finishedAuto ? this.autoInput(this.kart, 0) : this.input.state
         const ev = this.kart.step(
           PHYS_DT,
-          this.input.state,
-          canDrive && !this.kart.finished,
+          inp,
+          canDrive && (finishedAuto || !this.kart.finished),
           this.opts.raceMode === 'speed',
         )
         if (ev.driftStarted) audio.driftTick(0)
@@ -845,7 +910,7 @@ export class Game {
             const lapMs = now - this.lapStart
             this.lapTimes.push(lapMs)
             this.lapStart = now
-            if (this.kart.lap >= this.course.laps) this.finishLocal(now)
+            if (this.kart.lap >= this.course.laps) this.onPlayerCross(now)
             else audio.lap()
           }
         }
@@ -862,6 +927,7 @@ export class Game {
         if (aev.lapCrossed && ai.kart.cpTotal > 1 && ai.kart.lap >= this.course.laps && !ai.finished) {
           ai.finished = true
           ai.finishMs = now - this.goTime
+          this.registerFirstFinish(now)
         }
       }
     }
@@ -873,13 +939,23 @@ export class Game {
       const cpNeed = Math.floor(p2p * 8)
       const crossed = (kart: Kart) =>
         kart.cpTotal >= cpNeed && kart.trackIdx >= fIdx && kart.trackIdx < fIdx + 90
-      if (!this.kart.finished && crossed(this.kart)) this.finishLocal(now)
+      if (!this.kart.finished && crossed(this.kart)) this.onPlayerCross(now)
       for (const ai of this.ais) {
         if (!ai.finished && crossed(ai.kart)) {
           ai.finished = true
           ai.kart.finished = true
           ai.finishMs = now - this.goTime
+          this.registerFirstFinish(now)
         }
+      }
+    }
+
+    // AI 레이스: 1등 도착 후 제한시간 경과 또는 전원 완주 시 종료 (미완주자 리타이어)
+    if (this.phase === 'racing' && this.firstFinishAt !== null) {
+      const everyoneFinished =
+        this.kart.finished && this.ais.every((a) => a.finished)
+      if (everyoneFinished || now - this.firstFinishAt >= FINISH_GRACE_MS) {
+        this.endRace(now)
       }
     }
 
@@ -907,7 +983,8 @@ export class Game {
       for (const pa of padActors) {
         if (pa.key === 'me' && this.rescue) continue
         const tFrac = pa.kart.trackIdx / this.track.N
-        const lat = Math.abs(this.track.lateral(pa.kart.pos, pa.kart.trackIdx))
+        const latS = this.track.lateral(pa.kart.pos, pa.kart.trackIdx)
+        const lat = Math.abs(latS)
         this.course.boostPads.forEach((pad, i) => {
           const within = tFrac >= pad.t && tFrac <= pad.t + pad.len
           const cool = this.padCooldown.get(`${pa.key}:b${i}`) ?? 0
@@ -918,13 +995,25 @@ export class Game {
           }
         })
         this.course.jumpPads.forEach((pad, i) => {
-          // launch at the ramp's top edge
+          // launch at the ramp's top edge — 부분 폭 램프는 그 위에 있을 때만 발사
           const within = tFrac >= pad.t + pad.len * 0.55 && tFrac <= pad.t + pad.len + 0.004
           const cool = this.padCooldown.get(`${pa.key}:j${i}`) ?? 0
-          if (within && lat < this.track.halfWidth * 0.85 && now > cool && !pa.kart.airborne) {
+          const onPad =
+            Math.abs(latS - (pad.lane ?? 0) * this.track.halfWidth) <
+            (pad.w ?? 0.8) * this.track.halfWidth * 1.06
+          if (within && onPad && now > cool && !pa.kart.airborne) {
             this.padCooldown.set(`${pa.key}:j${i}`, now + 1200)
-            pa.kart.applyJump(10.5)
-            if (pa.key === 'me') audio.driftTick(1)
+            if (pad.launchTo !== undefined) {
+              // 보장 크로싱: 타이밍/속도 무관하게 목표 t에 정확히 착지 (대포와 동일한 탄도)
+              const land = this.track.worldAt(pad.launchTo, 0)
+              const dist = Math.hypot(land.x - pa.kart.pos.x, land.z - pa.kart.pos.z)
+              const flightSec = Math.min(2.2, Math.max(1.1, dist / 42))
+              pa.kart.launch(land.x, land.z, flightSec)
+              if (pa.key === 'me') audio.boost()
+            } else {
+              pa.kart.applyJump(10.5)
+              if (pa.key === 'me') audio.driftTick(1)
+            }
           }
         })
         // gimmicks (player + AIs; remotes are victim-authoritative on their end)
@@ -1182,7 +1271,8 @@ export class Game {
     this.updateCamera(dt)
     this.gimmicks.updateVisuals(raceSec, this.camera.position)
     this.ambient.update(dt, this.camera.position)
-    audio.setEngine(this.kart.speed, 27, this.input.state.throttle)
+    // baseMax = 부스터 없는 이 카트의 최고속 → 부스터로 넘으면 rev>1 (RPM 다운 들림)
+    audio.setEngine(this.kart.speed, 27 * this.kart.stats.speed, this.input.state.throttle)
     this.renderer.render(this.scene, this.camera)
 
     // rear-view mirror PIP (second render pass into a scissored viewport)
@@ -1279,48 +1369,81 @@ export class Game {
     }
   }
 
-  private placements(now: number): Placement[] {
+  private placements(): Placement[] {
     const rows: Placement[] = [
       {
         name: net.nickname || 'Racer',
-        totalMs: this.kart.finished ? this.finalTotalMs : null,
+        totalMs: this.kart.finished ? this.finalTotalMs : null, // 미완주 = 리타이어(DNF)
         isPlayer: true,
         color: net.color,
         team: this.opts.teamRace ? ('blue' as Team) : undefined,
       },
       ...this.ais.map((ai) => ({
         name: ai.name,
-        totalMs: ai.finishMs,
+        totalMs: ai.finished ? ai.finishMs : null,
         isPlayer: false,
         color: ai.color,
         team: ai.team,
       })),
     ]
-    // finished karts first by time, then unfinished by progress
+    // 완주자 먼저(완주 시간순), 미완주(리타이어)는 뒤로 (진행도순)
     const progOf = (p: Placement) =>
       p.isPlayer ? this.kart.progress : this.ais.find((a) => a.name === p.name)!.kart.progress
-    return rows.sort((a, b) => {
+    rows.sort((a, b) => {
       if (a.totalMs !== null && b.totalMs !== null) return a.totalMs - b.totalMs
       if (a.totalMs !== null) return -1
       if (b.totalMs !== null) return 1
       return progOf(b) - progOf(a)
     })
+    // 순위 포인트 — 완주자만 1위 8점…, 리타이어 0점
+    rows.forEach((p, i) => {
+      p.points = p.totalMs !== null ? RANK_POINTS[Math.min(i, RANK_POINTS.length - 1)] : 0
+    })
+    return rows
   }
 
-  private finishLocal(now: number) {
+  /** 첫 완주자 등록 — 여기서부터 FINISH_GRACE_MS 카운트다운 시작 */
+  private registerFirstFinish(now: number) {
+    if (this.firstFinishAt === null) {
+      this.firstFinishAt = now
+      audio.lap() // 카운트다운 시작 신호
+    }
+  }
+
+  /** 플레이어가 결승선을 넘음 */
+  private onPlayerCross(now: number) {
+    if (this.kart.finished) return
     this.kart.finished = true
-    this.phase = 'finished'
     this.finalTotalMs = now - this.goTime
-    this.finalBestLapMs = Math.min(...this.lapTimes)
+    this.finalBestLapMs = this.lapTimes.length ? Math.min(...this.lapTimes) : this.finalTotalMs
     audio.finish()
+    // AI가 없으면(랩타임 도전) 즉시 종료. AI 레이스면 카운트다운 후 endRace.
+    if (this.ais.length === 0) {
+      this.endRace(now)
+    } else {
+      this.registerFirstFinish(now)
+    }
+  }
+
+  /** 레이스 종료 — 미완주자 리타이어(0점) 처리 후 결과 전달 */
+  private endRace(now: number) {
+    if (this.phase === 'finished') return
+    this.phase = 'finished'
+    if (!this.kart.finished) {
+      // 플레이어가 제한시간 내 미완주 → 리타이어
+      this.playerDnf = true
+      this.finalTotalMs = now - this.goTime
+      this.finalBestLapMs = this.lapTimes.length ? Math.min(...this.lapTimes) : 0
+    }
     audio.stopEngine()
     audio.stopMusic()
-    const extra: FinishExtra = {}
-    if (this.opts.mode === 'time' && (this.opts.raceMode === 'item' || this.opts.teamRace)) {
-      extra.placements = this.placements(now)
-      if (this.opts.teamRace) extra.teamScores = this.teamScores()
+    const extra: FinishExtra = { playerDnf: this.playerDnf }
+    if (this.opts.mode === 'time' && this.ais.length > 0) {
+      extra.placements = this.placements()
+      if (this.opts.teamRace) extra.teamScores = this.teamScores(true)
     }
-    if (this.opts.mode === 'time' && this.opts.raceMode === 'speed' && this.ghostRec.length > 0) {
+    // 랩타임 도전(AI 없음)만 고스트 기록 제출
+    if (this.opts.mode === 'time' && this.ais.length === 0 && this.opts.raceMode === 'speed' && this.ghostRec.length > 0) {
       extra.ghost = {
         dt: 100,
         samples: this.ghostRec,
@@ -1382,10 +1505,15 @@ export class Game {
 
   private updateCamera(dt: number) {
     const k = this.kart
-    const back = 7.0
+    // 세로 화면(모바일)은 폭이 좁아 시야가 답답 → 카메라를 조금 더 붙이고 올려 세워,
+    // vFOV를 넓혀 앞길·좌우가 충분히 보이게 보정 (가로 화면은 기존 그대로).
+    const portrait = this.camera.aspect < 1
+    const back = portrait ? 6.3 : 7.0
+    const camH = portrait ? 3.8 : 3.4
+    const lookH = portrait ? 0.9 : 1.2
     const fwdX = Math.sin(k.heading)
     const fwdZ = Math.cos(k.heading)
-    const target = new THREE.Vector3(k.pos.x - fwdX * back, k.pos.y + 3.4, k.pos.z - fwdZ * back)
+    const target = new THREE.Vector3(k.pos.x - fwdX * back, k.pos.y + camH, k.pos.z - fwdZ * back)
     if (!this.camInit) {
       this.camPos.copy(target)
       this.camInit = true
@@ -1400,9 +1528,11 @@ export class Game {
       this.camera.position.y += (Math.random() - 0.5) * this.camShake * 0.7
       this.camShake *= Math.exp(-6 * dt)
     }
-    this.camera.fov = 72 * speedZoom + this.fovPunch * 13
+    // 세로일수록 vFOV를 넓힘 (aspect가 좁을수록 보정 ↑, 최대 92)
+    const fovBase = portrait ? Math.min(92, 72 + (1 / this.camera.aspect - 1) * 13) : 72
+    this.camera.fov = fovBase * speedZoom + this.fovPunch * 13
     this.camera.updateProjectionMatrix()
-    this.camera.lookAt(k.pos.x + fwdX * 6, k.pos.y + 1.2, k.pos.z + fwdZ * 6)
+    this.camera.lookAt(k.pos.x + fwdX * 6, k.pos.y + lookH, k.pos.z + fwdZ * 6)
   }
 
   private snapshot(now: number): HudSnapshot {
@@ -1457,6 +1587,10 @@ export class Game {
     return {
       phase: this.phase,
       countdown: Math.max(0, (this.goTime - now) / 1000),
+      finishCountdown:
+        this.firstFinishAt !== null && this.phase === 'racing'
+          ? Math.max(0, (this.firstFinishAt + FINISH_GRACE_MS - now) / 1000)
+          : null,
       startCharge: this.startCharge,
       standings: rows.slice(0, 8).map(({ name, isMe, color, team }) => ({ name, isMe, color, team })),
       teams: this.opts.teamRace ? this.teamScores() : null,

@@ -19,8 +19,9 @@ function detect(): Quality {
   if (typeof navigator === 'undefined') return 'high'
   const mobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent)
   const cores = navigator.hardwareConcurrency ?? 4
-  if (mobile && cores <= 4) return 'low'
-  if (mobile || cores <= 4) return 'mid'
+  // 모바일은 기본 low(pixelRatio 1) — 세로 100% 스무스 보장. 설정에서 상향 가능.
+  if (mobile) return 'low'
+  if (cores <= 4) return 'mid'
   return 'high'
 }
 

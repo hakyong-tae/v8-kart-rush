@@ -23,8 +23,8 @@ export const beach: CourseDef = {
     { t: 0.68, len: 0.018 },
   ],
   jumpPads: [
-    { t: 0.35, len: 0.014 },
-    { t: 0.8, len: 0.014 },
+    { t: 0.35, len: 0.014, lane: -0.1, w: 0.35 },
+    { t: 0.8, len: 0.014, lane: 0.1, w: 0.35 },
   ],
   pits: [], // open water map: everything beyond the buoy line is the sea
   itemRows: [
@@ -34,6 +34,9 @@ export const beach: CourseDef = {
     { t: 0.92, lanes: [-0.6, 0, 0.6] },
   ],
   gimmicks: [
+    // 점프대 뒤 젖은 모래 — 램프로 넘거나 반대쪽 가장자리 틈으로
+    { type: 'mud', t0: 0.364, t1: 0.374, lane: -0.15, w: 0.85 },
+    { type: 'mud', t0: 0.814, t1: 0.824, lane: 0.15, w: 0.85 },
     { type: 'tide', period: 46, range: 1.6 },
     { type: 'conveyor', t0: 0.46, t1: 0.54, dir: 1 as const, push: 6 },
   ],

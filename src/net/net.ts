@@ -45,6 +45,29 @@ export interface PlayerInfo {
   joinedAt: number
 }
 
+export interface RoomMeta {
+  key: string
+  mode: 'speed' | 'item'
+  courseId: string
+  variant: string
+  host: string
+  hostNick: string
+  locked: boolean
+}
+
+/** One row in the room browser list. */
+export interface RoomListing {
+  key: string
+  count: number
+  cap: number
+  mode: 'speed' | 'item'
+  variant: string
+  courseId: string
+  hostNick: string
+  locked: boolean
+  started: boolean
+}
+
 export interface RoomSnapshot {
   roomId: string
   users: string[]
@@ -54,6 +77,7 @@ export interface RoomSnapshot {
   startAt: number
   courseId: string
   raceMode: 'speed' | 'item'
+  meta: RoomMeta | null
   players: Record<string, PlayerInfo>
   finishes: Record<string, { raceId: number; totalMs: number; bestLapMs: number; at: number }>
 }
@@ -66,15 +90,30 @@ function parseRoomState(state: any): RoomSnapshot {
     if (k.startsWith('fin_') && state[k]) finishes[k.slice(4)] = state[k]
   }
   const users: string[] = state?.$users ?? []
+  const rawMeta = state?.meta ?? null
+  const meta: RoomMeta | null = rawMeta
+    ? {
+        key: rawMeta.key ?? '',
+        mode: rawMeta.mode === 'speed' ? 'speed' : 'item',
+        courseId: rawMeta.courseId ?? 'sunny',
+        variant: rawMeta.variant ?? 'ffa',
+        host: rawMeta.host ?? '',
+        hostNick: rawMeta.hostNick ?? 'Racer',
+        locked: !!rawMeta.locked,
+        // NOTE: server never omits pass from getRoomSnapshot, but the client never needs it —
+        // password is verified server-side in joinRace, so we deliberately drop it here.
+      }
+    : null
   return {
-    roomId: state?.roomId ?? '',
+    roomId: state?.roomId ?? meta?.key ?? '',
     users,
-    host: users[0] ?? null,
+    host: meta?.host ?? users[0] ?? null,
     phase: state?.phase === 'racing' ? 'racing' : 'lobby',
     raceId: state?.raceId ?? 0,
     startAt: state?.startAt ?? 0,
-    courseId: state?.courseId ?? 'sunny',
-    raceMode: state?.raceMode === 'speed' ? 'speed' : 'item',
+    courseId: state?.courseId ?? meta?.courseId ?? 'sunny',
+    raceMode: state?.raceMode === 'speed' ? 'speed' : meta?.mode === 'speed' ? 'speed' : 'item',
+    meta,
     players,
     finishes,
   }
@@ -253,11 +292,58 @@ class Net {
     return JSON.parse(localStorage.getItem(LS_LB(courseId)) || '[]')
   }
 
-  // ---------- rooms ----------
+  // ---------- room browser (JetFall-style) ----------
 
-  async joinRoom(roomId: string): Promise<RoomSnapshot> {
+  private heartbeat: ReturnType<typeof setInterval> | null = null
+  isHostOfRoom = false
+
+  /** List of open rooms to show in the browser. Empty when offline. */
+  async listRooms(): Promise<RoomListing[]> {
+    if (!this.server) return []
+    try {
+      const rooms = await this.server.remoteFunction('listRooms', [])
+      return Array.isArray(rooms) ? rooms : []
+    } catch (e) {
+      console.warn('[net] listRooms failed', e)
+      return []
+    }
+  }
+
+  /** Create a room as host and enter its lobby. Returns the room snapshot. */
+  async createRoom(opts: {
+    mode: 'speed' | 'item'
+    courseId: string
+    variant: string
+    pass?: string
+  }): Promise<RoomSnapshot> {
     if (!this.server) throw new Error('offline')
-    await this.server.remoteFunction('joinRace', [roomId])
+    const res = await this.server.remoteFunction('createRoom', [
+      { ...opts, hostNick: this.nickname || 'Racer' },
+    ])
+    const roomId = res?.roomId
+    if (!roomId) throw new Error('createRoom failed')
+    return this._enterRoom(roomId, true)
+  }
+
+  /** Join the first open room, or create one if none. */
+  async quickJoin(prefMode?: 'speed' | 'item'): Promise<RoomSnapshot> {
+    if (!this.server) throw new Error('offline')
+    const res = await this.server.remoteFunction('quickJoin', [prefMode ?? null, this.nickname || 'Racer'])
+    const roomId = res?.roomId
+    if (!roomId) throw new Error('quickJoin failed')
+    // host if we ended up creating it — determined from the snapshot's meta.host below
+    return this._enterRoom(roomId, false)
+  }
+
+  async joinRoom(roomId: string, pass?: string): Promise<RoomSnapshot> {
+    if (!this.server) throw new Error('offline')
+    await this.server.remoteFunction('joinRace', [roomId, pass ?? ''])
+    return this._enterRoom(roomId, false)
+  }
+
+  /** Shared post-join: register player, read snapshot, start host heartbeat if host. */
+  private async _enterRoom(roomId: string, forceHost: boolean): Promise<RoomSnapshot> {
+    if (!this.server) throw new Error('offline')
     this.roomId = roomId
     await this.server.remoteFunction('updatePlayer', [
       {
@@ -269,10 +355,41 @@ class Net {
       },
     ])
     const state = await this.server.remoteFunction('getRoomSnapshot', [])
-    return parseRoomState(state)
+    const snap = parseRoomState(state)
+    this.isHostOfRoom = forceHost || snap.host === this.account
+    this._startHeartbeat(snap.phase === 'racing')
+    return snap
+  }
+
+  /** Host pings the room list every 5s so it stays fresh (count/started). No-op for non-hosts. */
+  private _startHeartbeat(started: boolean) {
+    this._stopHeartbeat()
+    if (!this.server || !this.roomId) return
+    const tick = (racing: boolean) => {
+      if (!this.server || !this.roomId || !this.isHostOfRoom) return
+      this.server
+        .remoteFunction('touchRoom', [this.roomId, racing], { needResponse: false })
+        .catch(() => {})
+    }
+    tick(started)
+    this.heartbeat = setInterval(() => tick(started), 5000)
+  }
+
+  private _stopHeartbeat() {
+    if (this.heartbeat) {
+      clearInterval(this.heartbeat)
+      this.heartbeat = null
+    }
+  }
+
+  /** Called by the lobby/host when race phase flips, so the list shows 대기중 vs 게임중. */
+  setRoomStarted(started: boolean) {
+    this._startHeartbeat(started)
   }
 
   async leaveRoom() {
+    this._stopHeartbeat()
+    this.isHostOfRoom = false
     this.unsubs.forEach((u) => u())
     this.unsubs = []
     if (this.server && this.roomId) {

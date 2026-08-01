@@ -1,4 +1,36 @@
 // Tiny WebAudio synth — no audio assets needed.
+
+// 카트별 엔진 음색 — 무게 클래스/차체 크기로 아이들 피치·회전·필터가 달라진다.
+export interface EngineProfile {
+  idleFreq: number // 정지 시 기본 Hz (무거울수록 낮음 = 굵은 배기음)
+  revFreq: number // 풀회전에서 더해지는 Hz
+  harmonic: number // 2번 오실레이터 배음비 (높을수록 날카로움)
+  filterBase: number
+  filterRev: number
+  vol: number // 음량 배율
+}
+
+/** 무게 클래스 + 차체 크기로 엔진 프로파일 생성 (hover=전기 톤) */
+export function engineProfileFor(
+  weightClass: 'light' | 'medium' | 'heavy',
+  size: number,
+  hover = false,
+): EngineProfile {
+  if (hover)
+    return { idleFreq: 92, revFreq: 250, harmonic: 3.0, filterBase: 900, filterRev: 2600, vol: 0.8 }
+  const base: Record<string, EngineProfile> = {
+    light: { idleFreq: 72, revFreq: 210, harmonic: 2.0, filterBase: 620, filterRev: 2200, vol: 0.9 },
+    medium: { idleFreq: 55, revFreq: 175, harmonic: 1.5, filterBase: 500, filterRev: 1800, vol: 1.0 },
+    heavy: { idleFreq: 43, revFreq: 145, harmonic: 1.25, filterBase: 380, filterRev: 1450, vol: 1.18 },
+  }
+  const p = { ...base[weightClass] }
+  // 같은 클래스 안에서도 차체 크기로 미세 차등 (큰 차체 = 살짝 더 낮게)
+  const k = 1 - (size - 1.8) * 0.035
+  p.idleFreq *= k
+  p.revFreq *= k
+  return p
+}
+
 export class AudioEngine {
   private ctx: AudioContext | null = null
   private engineOsc: OscillatorNode | null = null
@@ -6,6 +38,9 @@ export class AudioEngine {
   private engineGain: GainNode | null = null
   private engineFilter: BiquadFilterNode | null = null
   muted = false
+  // 현재 카트 엔진 프로파일 (기본 = medium). Game이 카트 선택 시 설정.
+  private engineProfile: EngineProfile = engineProfileFor('medium', 2.4)
+  private engineRev = 0 // 현재 회전(rev) — 부드러운 하강용
   sfxVol = Number(localStorage.getItem('v8kart_sfxvol') ?? 0.8)
   bgmVol = Number(localStorage.getItem('v8kart_bgmvol') ?? 0.7)
 
@@ -96,15 +131,31 @@ export class AudioEngine {
     this.ctx?.resume().catch(() => {})
   }
 
-  setEngine(speed: number, maxSpeed: number, throttle: number) {
+  setEngineProfile(p: EngineProfile) {
+    this.engineProfile = p
+  }
+
+  /**
+   * @param speed   현재 속도
+   * @param baseMax 부스터 없는 기본 최고속도 (rev>1 = 부스터로 오버스피드)
+   * @param throttle 스로틀 입력
+   * rev를 1로 클램프하지 않아서 부스터로 넘겼다가 원속도로 떨어질 때 피치가 내려온다(RPM 다운).
+   */
+  setEngine(speed: number, baseMax: number, throttle: number) {
     if (!this.ctx || !this.engineOsc || !this.engineGain || this.muted) return
-    const r = Math.min(1, Math.abs(speed) / maxSpeed)
-    const f = 55 + r * 165
+    const p = this.engineProfile
+    // rev: 0~약1.6 (부스터 구간 1 초과). 목표를 향해 부드럽게 따라가 급변 방지.
+    const target = Math.min(1.6, Math.abs(speed) / baseMax)
+    this.engineRev += (target - this.engineRev) * 0.5
+    const rev = this.engineRev
+    const f = p.idleFreq + rev * p.revFreq
     this.engineOsc.frequency.setTargetAtTime(f, this.ctx.currentTime, 0.05)
-    this.engineOsc2!.frequency.setTargetAtTime(f * 1.5 + 3, this.ctx.currentTime, 0.05)
-    const vol = (0.018 + r * 0.05 + Math.abs(throttle) * 0.015) * this.sfxVol
+    this.engineOsc2!.frequency.setTargetAtTime(f * p.harmonic + 3, this.ctx.currentTime, 0.05)
+    // 오버스피드(부스터) 구간엔 살짝 더 크게 — 회전이 붙은 느낌
+    const over = Math.max(0, rev - 1)
+    const vol = (0.018 + Math.min(1, rev) * 0.05 + over * 0.03 + Math.abs(throttle) * 0.015) * p.vol * this.sfxVol
     this.engineGain.gain.setTargetAtTime(this.muted ? 0 : vol, this.ctx.currentTime, 0.08)
-    this.engineFilter!.frequency.setTargetAtTime(500 + r * 1800, this.ctx.currentTime, 0.1)
+    this.engineFilter!.frequency.setTargetAtTime(p.filterBase + rev * p.filterRev, this.ctx.currentTime, 0.1)
   }
 
   stopEngine() {
@@ -219,3 +270,5 @@ export class AudioEngine {
 }
 
 export const audio = new AudioEngine()
+// 디버그/테스트용 핸들 (window.__game 패턴과 동일) — 뮤트 토글 등
+if (typeof window !== 'undefined') (window as any).__audio = audio
